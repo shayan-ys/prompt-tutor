@@ -28,8 +28,12 @@ _Avoid_: hint, lesson, advice
 A set of Prompts whose Reviews are kept and digested together, chosen by rules on the agent profile and working directory.
 _Avoid_: profile, workspace, bucket
 
+**Pattern**:
+A kind of language error that recurs across a Scope's Findings, such as a missing article, recognised by the Digest and followed from week to week.
+_Avoid_: theme, error type, rule
+
 **Digest**:
-A weekly summary of one Scope's recurring Finding patterns, ending with what to focus on next.
+A brief weekly English lesson for one Scope, built from that week's Patterns and their trend over recent weeks, ending with what to focus on next.
 _Avoid_: report, summary, recap
 
 **Watcher**:
