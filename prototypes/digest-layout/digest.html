@@ -1,0 +1,272 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Issue: "Digest HTML layout" (shayan-ys/prompt-tutor#8).
+  Three structurally different layouts of digest.html for one Scope's week, switchable via ?variant=A|B|C,
+  plus ?group=pattern|category to show how Findings are grouped. Open this file in a browser; no build.
+  Data is SYNTHETIC (the repo is public). It mimics the shapes seen in the Review-schema prototype run:
+  many grammar Findings that repeat as one rule with different quotes, a few spelling repeats, and one-off fluency.
+  `pattern` on each Finding is HYPOTHETICAL: the current Review schema has no such field.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PROTOTYPE Digest: personal, week ending 2026-10-02</title>
+<style>
+:root{--fg:#1d1d1f;--mute:#6b6b70;--line:#e3e3e8;--bg:#fff;--soft:#f6f6f8;--sp:#c62828;--gr:#b26a00;--fl:#1565c0;--up:#c62828;--down:#2e7d32}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.55 system-ui,-apple-system,sans-serif;color:var(--fg);background:var(--bg)}
+a{color:inherit}
+del{background:#fde4e4;text-decoration:line-through;border-radius:3px;padding:0 2px}
+ins{background:#ddf3df;text-decoration:none;border-radius:3px;padding:0 2px}
+.spelling{color:var(--sp)}.grammar{color:var(--gr)}.fluency{color:var(--fl)}
+.chip{display:inline-block;font-size:12px;border:1px solid currentColor;border-radius:99px;padding:0 8px;line-height:20px}
+.mute{color:var(--mute)}
+.up{color:var(--up)}.down{color:var(--down)}
+.new{font-size:11px;background:#222;color:#fff;border-radius:4px;padding:1px 5px;vertical-align:middle}
+.ex{font:13.5px/1.5 ui-monospace,SFMono-Regular,monospace}
+.focus{font-size:17px;line-height:1.6}
+.banner{background:#222;color:#fff;font-size:12px;padding:6px 12px}
+details>summary{cursor:pointer}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);font-weight:600}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+
+/* A: report */
+.A{max-width:880px;margin:0 auto;padding:28px 20px 120px}
+.A header{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid var(--fg);padding-bottom:8px}
+.A h1{font-size:22px;margin:0}
+.A .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}
+.A .kpi{background:var(--soft);border-radius:8px;padding:10px 12px}
+.A .kpi b{display:block;font-size:22px}
+.A .kpi small{color:var(--mute)}
+.A .focusbox{border-left:4px solid var(--fg);padding:4px 16px;margin:22px 0}
+.A h2{font-size:15px;text-transform:uppercase;letter-spacing:.05em;margin:28px 0 6px}
+.A .bar{display:inline-block;height:8px;border-radius:4px;background:currentColor;vertical-align:middle;margin-right:6px}
+.A nav{margin-top:36px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}
+
+/* B: one thing */
+.B{max-width:640px;margin:0 auto;padding:40px 20px 120px}
+.B .crumbs{display:flex;justify-content:space-between;font-size:13px;color:var(--mute)}
+.B .crumbs a{text-decoration:none}
+.B h1{font-size:30px;line-height:1.2;margin:28px 0 8px}
+.B .sub{color:var(--mute);margin-bottom:28px}
+.B .card{border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+.B .card h3{margin:0 0 4px;font-size:18px}
+.B .card .count{float:right;font-size:28px;font-weight:700;line-height:1}
+.B .card .ex{background:var(--soft);border-radius:8px;padding:8px 10px;margin-top:8px}
+.B .rank{font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.06em}
+.B details{margin-top:26px;border-top:1px solid var(--line);padding-top:12px}
+
+/* C: grid over time */
+.C{display:grid;grid-template-columns:200px 1fr;min-height:100vh}
+.C aside{background:var(--soft);border-right:1px solid var(--line);padding:20px 14px 120px;font-size:14px}
+.C aside h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;color:var(--mute)}
+.C aside a{display:block;padding:4px 8px;border-radius:6px;text-decoration:none}
+.C aside a.cur{background:#fff;font-weight:600;box-shadow:0 0 0 1px var(--line)}
+.C main{padding:22px 26px 120px;max-width:1080px}
+.C h1{font-size:20px;margin:0 0 4px}
+.C .focus{background:#fffbea;border:1px solid #f1e3a6;border-radius:10px;padding:12px 16px;margin:16px 0 22px;font-size:15px}
+.C .grid td{padding:6px 8px}
+.C .dot{display:inline-block;width:18px;height:18px;border-radius:4px;background:var(--soft);text-align:center;font-size:11px;line-height:18px;color:#fff}
+.C .dot.h1{background:#f2b8b5}.C .dot.h2{background:#e57373}.C .dot.h3{background:#c62828}
+.C .ex-row td{background:#fcfcfd;font-size:13px}
+.C svg{vertical-align:middle}
+.C tr.pat{cursor:pointer}
+.C tr.pat:hover td{background:#fafafa}
+
+/* prototype switcher: not part of the design */
+#sw{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;background:#111;color:#fff;border-radius:99px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:13px system-ui;z-index:9}
+#sw button{background:#333;color:#fff;border:0;border-radius:99px;padding:5px 11px;cursor:pointer;font:inherit;white-space:nowrap}
+#sw button.on{background:#fff;color:#111}
+#sw span{padding:0 8px;min-width:190px;text-align:center}
+#sw i{opacity:.4;font-style:normal;padding:0 4px}
+</style>
+<body>
+<div class="banner">PROTOTYPE · synthetic data · <code>pattern</code> is a hypothetical Review field · issue “Digest HTML layout”</div>
+<div id="root"></div>
+<div id="sw"></div>
+<script>
+// ---------- synthetic week: Scope "personal", window Fri 2026-09-25 12:00 → Fri 2026-10-02 12:00 ----------
+const WEEK = { scope: "personal", from: "2026-09-25", to: "2026-10-02", file: "2026-10-02",
+  prompts: 58, reviewed: 52, clean: 20, skippedLong: 2, skippedEmpty: 3, invalid: 1 };
+const PREV = { file: "2026-09-25", prompts: 61, reviewed: 57, clean: 18 };
+const ARCHIVE = ["2026-09-25", "2026-09-18", "2026-09-11", "2026-09-04", "2026-08-28"];
+
+// Hypothetical fixed pattern taxonomy the grader would tag each Finding with.
+const PATTERNS = {
+  "article":        { name: "Missing or wrong article", cat: "grammar", rule: "Singular count nouns need a, an, or the in a full sentence." },
+  "embedded-q":     { name: "Question word order inside a sentence", cat: "grammar", rule: "After “tell me / check / explain”, use statement order: “why it fails”." },
+  "agreement":      { name: "Subject–verb agreement", cat: "grammar", rule: "Singular subjects take -s verbs; plural subjects do not." },
+  "perfect":        { name: "Present perfect for ongoing time", cat: "grammar", rule: "“since …” / “for N years” up to now uses has/have (been)." },
+  "preposition":    { name: "Preposition choice", cat: "grammar", rule: "Fixed pairs: depend on, in the README, on Mac." },
+  "misspelling":    { name: "Misspelled word", cat: "spelling", rule: "Common misspellings and product names." },
+  "phrasing":       { name: "Unnatural phrasing", cat: "fluency", rule: "Grammatical, but a native speaker would say it differently." },
+};
+// day: 0 = Fri … 6 = Thu
+const F = (day, pattern, quote, fix, why) => ({ day, pattern, cat: PATTERNS[pattern].cat, quote, fix, why });
+const FINDINGS = [
+  F(0,"article","why build fails","why the build fails","“Build” needs “the” here."),
+  F(0,"embedded-q","what is the default timeout","what the default timeout is","Embedded questions use statement order."),
+  F(1,"article","add button to header","add a button to the header","Count nouns need an article."),
+  F(1,"misspelling","seperate","separate","Spelling."),
+  F(1,"phrasing","make it more fast","make it faster","Use the comparative “faster”."),
+  F(2,"article","lives in repo root","lives in the repo root","Specific place needs “the”."),
+  F(2,"agreement","the tests passes","the tests pass","Plural subject takes “pass”."),
+  F(2,"embedded-q","where is the log","where the log is","Statement order after “I don't know”."),
+  F(2,"perfect","since monday it fails","since Monday it has been failing","Ongoing since a point in time."),
+  F(3,"article","we need migration","we need a migration","Singular count noun."),
+  F(3,"article","is there way to","is there a way to","“Way” needs “a”."),
+  F(3,"misspelling","recieve","receive","i before e except after c."),
+  F(3,"preposition","depend of","depend on","The verb is “depend on”."),
+  F(3,"phrasing","the result is not so much good","the result isn't very good","“Not so much good” is unnatural."),
+  F(4,"article","write test that covers","write a test that covers","Singular count noun."),
+  F(4,"embedded-q","why does it fail","why it fails","Statement order after “check”."),
+  F(4,"misspelling","seperate","separate","Spelling."),
+  F(4,"agreement","each of them have","each of them has","“Each” is singular."),
+  F(5,"article","it's bug in","it's a bug in","Singular count noun."),
+  F(5,"preposition","on the README","in the README","Text is “in” a document."),
+  F(5,"phrasing","do a deep look","take a deep look","Collocation: “take a look”."),
+  F(5,"misspelling","Typscript","TypeScript","Product name."),
+  F(6,"article","on staging server","on the staging server","Specific server needs “the”."),
+  F(6,"embedded-q","how does caching work here","how caching works here","Statement order after “explain”."),
+  F(6,"perfect","I use this for 2 years","I've been using this for 2 years","Ongoing period up to now."),
+  F(6,"phrasing","give me more detailed","give me more detail","Noun needed, not adjective."),
+  F(6,"phrasing","in a short way","briefly","More natural adverb."),
+];
+// previous Digest counts per pattern and per category (read from digests/2026-09-25.json in the real thing)
+const PREV_PAT = { article: 11, "embedded-q": 2, agreement: 2, perfect: 3, preposition: 1, misspelling: 3, phrasing: 7 };
+// last 6 Digests incl. this one, oldest first (sparklines in C)
+const HIST = { article:[14,12,13,11,11,8], "embedded-q":[0,1,1,3,2,4], agreement:[3,2,2,1,2,2], perfect:[2,3,2,2,3,2], preposition:[1,0,2,1,1,2], misspelling:[5,4,4,3,3,4], phrasing:[6,8,5,9,7,5] };
+const RECURRING_SPANS_PREV = new Set(["seperate→separate"]); // span pairs also seen in the previous Digest
+
+const FOCUS = "Your most frequent pattern is still the missing article: you drop “a” and “the” before singular nouns in full sentences (“add button to header”). It fell from 11 to 8, so it's improving. The new pattern to watch is question word order inside a sentence. It went from 2 to 4: “check why does it fail” should be “check why it fails”. Next week, read your Prompt once before you send it, and look for “why/what/where/how” in the middle of a sentence.";
+
+// ---------- aggregation ----------
+const DAYS = ["Fri","Sat","Sun","Mon","Tue","Wed","Thu"];
+const CATS = ["spelling","grammar","fluency"];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" })[c]);
+const ex = f => `<span class="ex"><del>${esc(f.quote)}</del> → <ins>${esc(f.fix)}</ins></span>`;
+const delta = (now, prev) => prev == null ? `<span class="new">NEW</span>` : now === prev ? `<span class="mute">±0</span>` : now > prev ? `<span class="up">▲ ${now - prev}</span>` : `<span class="down">▼ ${prev - now}</span>`;
+const catCount = c => FINDINGS.filter(f => f.cat === c).length;
+const prevCat = c => Object.entries(PREV_PAT).filter(([p]) => PATTERNS[p].cat === c).reduce((a, [, n]) => a + n, 0);
+
+// group=pattern: by hypothetical grader tag. Recurring = >=2 this week. Fluency "phrasing" never ranks: one-offs by nature.
+// group=category: no tag exists, so the only stable key is the exact quote→fix pair; everything else is uncountable.
+function groups(mode) {
+  const m = new Map();
+  for (const f of FINDINGS) {
+    const key = mode === "pattern" ? f.pattern : `${f.quote.toLowerCase()}→${f.fix.toLowerCase()}`;
+    if (!m.has(key)) m.set(key, []);
+    m.get(key).push(f);
+  }
+  const all = [...m.entries()].map(([key, fs]) => {
+    const p = mode === "pattern" ? PATTERNS[key] : null;
+    return { key, fs, n: fs.length, cat: fs[0].cat,
+      name: p ? p.name : `“${fs[0].quote}” → “${fs[0].fix}”`,
+      rule: p ? p.rule : fs[0].why,
+      prev: mode === "pattern" ? PREV_PAT[key] : (RECURRING_SPANS_PREV.has(key) ? 1 : undefined),
+      examples: pickExamples(fs) };
+  });
+  const recurring = all.filter(g => g.cat !== "fluency" && (g.n >= 2 || (g.prev ?? 0) >= 1)).sort((a, b) => b.n - a.n || (b.prev ?? 0) - (a.prev ?? 0));
+  const oneOffs = FINDINGS.filter(f => !recurring.some(g => g.fs.includes(f)));
+  return { recurring, oneOffs };
+}
+// examples: up to 2 distinct quotes, most recent first
+function pickExamples(fs) {
+  const seen = new Set(), out = [];
+  for (const f of [...fs].sort((a, b) => b.day - a.day)) { const k = f.quote.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(f); } if (out.length === 2) break; }
+  return out;
+}
+const pct = (a, b) => Math.round(100 * a / b);
+
+// ---------- Variant A: report (KPI strip, focus, ranked table, one-offs collapsed, archive footer) ----------
+function VariantA(mode) {
+  const { recurring, oneOffs } = groups(mode);
+  const max = Math.max(...recurring.map(g => g.n), 1);
+  return `<div class="A">
+<header><h1>Digest · ${WEEK.scope}</h1><span class="mute">${WEEK.from} → ${WEEK.to}</span></header>
+<div class="kpis">
+  <div class="kpi"><small>Prompts</small><b>${WEEK.prompts}</b><small>${delta(WEEK.prompts, PREV.prompts)}</small></div>
+  <div class="kpi"><small>Clean</small><b>${pct(WEEK.clean, WEEK.reviewed)}%</b><small>${WEEK.clean}/${WEEK.reviewed} reviewed · last ${pct(PREV.clean, PREV.reviewed)}%</small></div>
+  ${CATS.map(c => `<div class="kpi"><small class="${c}">${c}</small><b>${catCount(c)}</b><small>${delta(catCount(c), prevCat(c))}</small></div>`).join("")}
+</div>
+<div class="focusbox"><div class="mute" style="font-size:12px;text-transform:uppercase">What to focus on next</div><p class="focus">${esc(FOCUS)}</p></div>
+<h2>Recurring patterns</h2>
+${recurring.length ? `<table><tr><th>Pattern</th><th>This week</th><th>vs last</th><th>Examples</th></tr>
+${recurring.map(g => `<tr><td><b>${esc(g.name)}</b> <span class="chip ${g.cat}">${g.cat}</span><div class="mute" style="font-size:13px">${esc(g.rule)}</div></td>
+<td class="${g.cat}" style="white-space:nowrap"><span class="bar" style="width:${60 * g.n / max}px"></span>${g.n}</td><td>${delta(g.n, g.prev)}</td>
+<td>${g.examples.map(ex).join("<br>")}</td></tr>`).join("")}</table>` : `<p class="mute">Nothing repeated this week.</p>`}
+<details style="margin-top:18px"><summary><b>${oneOffs.length} one-off Findings</b> <span class="mute">(single occurrences; fluency varies between grading runs, so these are not ranked)</span></summary>
+<table>${oneOffs.map(f => `<tr><td><span class="chip ${f.cat}">${f.cat}</span></td><td>${ex(f)}</td><td class="mute">${esc(f.why)}</td></tr>`).join("")}</table></details>
+<p class="mute" style="font-size:13px;margin-top:18px">Not reviewed: ${WEEK.skippedLong} too long, ${WEEK.skippedEmpty} nothing to review, ${WEEK.invalid} grader failure (EN ?).</p>
+<nav>Previous: <a href="digests/${PREV.file}.html">${PREV.file}</a> · Archive: ${ARCHIVE.map(d => `<a href="digests/${d}.html">${d}</a>`).join(" · ")}</nav>
+</div>`;
+}
+
+// ---------- Variant B: one thing (focus as headline, top-3 cards, everything else behind one disclosure) ----------
+function VariantB(mode) {
+  const { recurring, oneOffs } = groups(mode);
+  const top = recurring.slice(0, 3), rest = recurring.slice(3);
+  return `<div class="B">
+<div class="crumbs"><a href="digests/${PREV.file}.html">← ${PREV.file}</a><span>${WEEK.scope} · week ending ${WEEK.to}</span><span class="mute">latest</span></div>
+<h1>${esc(FOCUS.split(". ")[0])}.</h1>
+<div class="sub">${esc(FOCUS.split(". ").slice(1).join(". "))}</div>
+${top.map((g, i) => `<div class="card"><span class="count ${g.cat}">${g.n}</span><div class="rank">#${i + 1} · ${g.cat} · ${delta(g.n, g.prev)} vs last week</div>
+<h3>${esc(g.name)}</h3><div class="mute">${esc(g.rule)}</div>${g.examples.map(f => `<div class="ex">${ex(f)}</div>`).join("")}</div>`).join("") || `<p>Nothing repeated this week.</p>`}
+<details><summary>Everything else: ${rest.length} smaller patterns, ${oneOffs.length} one-offs, ${WEEK.prompts} Prompts (${pct(WEEK.clean, WEEK.reviewed)}% clean)</summary>
+${rest.map(g => `<p><b>${esc(g.name)}</b> ×${g.n} ${delta(g.n, g.prev)}<br>${g.examples.map(ex).join("<br>")}</p>`).join("")}
+<ul>${oneOffs.map(f => `<li><span class="${f.cat}">${f.cat}</span> ${ex(f)}</li>`).join("")}</ul>
+<p class="mute">Spelling ${catCount("spelling")} · grammar ${catCount("grammar")} · fluency ${catCount("fluency")}. Not reviewed: ${WEEK.skippedLong + WEEK.skippedEmpty + WEEK.invalid}.</p>
+<p>Older Digests: ${ARCHIVE.map(d => `<a href="digests/${d}.html">${d}</a>`).join(", ")}</p></details>
+</div>`;
+}
+
+// ---------- Variant C: grid over time (archive sidebar, pattern × day heat grid, 6-Digest sparkline, click to expand) ----------
+function spark(arr) {
+  const w = 70, h = 20, mx = Math.max(...arr, 1);
+  const pts = arr.map((v, i) => `${(i * w / (arr.length - 1)).toFixed(1)},${(h - 2 - v * (h - 4) / mx).toFixed(1)}`).join(" ");
+  return `<svg width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="#888" stroke-width="1.5"/><circle cx="${w}" cy="${pts.split(" ").at(-1).split(",")[1]}" r="2.5" fill="#111"/></svg>`;
+}
+function VariantC(mode) {
+  const { recurring, oneOffs } = groups(mode);
+  const rows = recurring.map((g, i) => {
+    const perDay = DAYS.map((_, d) => g.fs.filter(f => f.day === d).length);
+    return `<tr class="pat" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+<td><b>${esc(g.name)}</b><br><span class="chip ${g.cat}">${g.cat}</span></td>
+${perDay.map(n => `<td><span class="dot ${n ? "h" + Math.min(n, 3) : ""}">${n || ""}</span></td>`).join("")}
+<td><b>${g.n}</b> ${delta(g.n, g.prev)}</td><td>${mode === "pattern" && HIST[g.key] ? spark(HIST[g.key]) : `<span class="mute">n/a</span>`}</td></tr>
+<tr class="ex-row" ${i ? "hidden" : ""}><td colspan="${DAYS.length + 3}">${esc(g.rule)}<br>${g.fs.map(ex).join(" &nbsp; ")}</td></tr>`;
+  }).join("");
+  return `<div class="C"><aside><h4>${WEEK.scope}</h4>
+<a class="cur" href="../digest.html">${WEEK.file} · latest</a>${ARCHIVE.map(d => `<a href="digests/${d}.html">${d}</a>`).join("")}
+<h4 style="margin-top:20px">This week</h4><div>${WEEK.prompts} Prompts<br>${pct(WEEK.clean, WEEK.reviewed)}% clean<br>${CATS.map(c => `<span class="${c}">${c} ${catCount(c)}</span>`).join("<br>")}</div></aside>
+<main><h1>Week ${WEEK.from} → ${WEEK.to}</h1><div class="mute">Click a row for every Finding in that pattern.</div>
+<div class="focus"><b>Focus next:</b> ${esc(FOCUS)}</div>
+<table class="grid"><tr><th>Pattern</th>${DAYS.map(d => `<th>${d}</th>`).join("")}<th>Week</th><th>Last 6 Digests</th></tr>${rows}</table>
+<h3 style="margin-top:26px">One-offs <span class="mute" style="font-weight:normal">(${oneOffs.length}, not trended)</span></h3>
+<p>${oneOffs.map(f => `<span class="${f.cat}">●</span> ${ex(f)}`).join("<br>")}</p></main></div>`;
+}
+
+// ---------- switcher (prototype chrome) ----------
+const VARIANTS = { A: ["Report", VariantA], B: ["One thing", VariantB], C: ["Grid over time", VariantC] };
+const KEYS = Object.keys(VARIANTS);
+function state() { const q = new URLSearchParams(location.search); return { v: KEYS.includes(q.get("variant")) ? q.get("variant") : "A", g: q.get("group") === "category" ? "category" : "pattern" }; }
+function go(v, g) { history.replaceState(null, "", `?variant=${v}&group=${g}`); render(); }
+function render() {
+  const { v, g } = state();
+  document.getElementById("root").innerHTML = VARIANTS[v][1](g);
+  const i = KEYS.indexOf(v);
+  document.getElementById("sw").innerHTML = `<button id="prev">←</button><span>${v} (${VARIANTS[v][0]})</span><button id="next">→</button><i>|</i>
+<button class="${g === "pattern" ? "on" : ""}" id="gp">group: pattern tag</button><button class="${g === "category" ? "on" : ""}" id="gc">group: exact span only</button>`;
+  document.getElementById("prev").onclick = () => go(KEYS[(i + KEYS.length - 1) % KEYS.length], g);
+  document.getElementById("next").onclick = () => go(KEYS[(i + 1) % KEYS.length], g);
+  document.getElementById("gp").onclick = () => go(v, "pattern");
+  document.getElementById("gc").onclick = () => go(v, "category");
+}
+addEventListener("keydown", e => {
+  if (e.target.closest("input,textarea,[contenteditable]")) return;
+  const { v, g } = state(), i = KEYS.indexOf(v);
+  if (e.key === "ArrowLeft") go(KEYS[(i + KEYS.length - 1) % KEYS.length], g);
+  if (e.key === "ArrowRight") go(KEYS[(i + 1) % KEYS.length], g);
+});
+render();
+</script>
