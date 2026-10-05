@@ -1,0 +1,3 @@
+# Just-in-time Digest instead of a daemon or scheduler
+
+The weekly Digest runs on the first interactive omp session after Friday 12:00 local time, when that Scope's Digest is stale. It runs in the background behind an `O_EXCL` lock file that counts as stale after 10 minutes, writes `<store>/digest.html`, archives the previous one as `digests/YYYY-MM-DD.html`, and announces itself with an omp startup notification. A launchd/cron job or long-running daemon was rejected: it needs per-OS install and uninstall, runs when nobody will read the result, and has no omp context to resolve the grader model. The cost is that a week with no omp session produces no Digest until the next session.
