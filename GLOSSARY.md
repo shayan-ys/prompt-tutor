@@ -39,3 +39,7 @@ _Avoid_: report, summary, recap
 **Watcher**:
 The terminal view that shows the latest Prompt and its Review.
 _Avoid_: viewer, dashboard, monitor
+
+**Review log**:
+The browsable record of Reviews, one page per month, for one Scope or for all Scopes together, where each Review has its own link.
+_Avoid_: history, report, feed
