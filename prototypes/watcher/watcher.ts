@@ -375,9 +375,59 @@ function variantC(e: Entry, view: View, w: number, list: Entry[], rows: number):
 	return [...lines, " " + fg(238) + "┄".repeat(w - 2) + RESET, ...open, ...(after.length ? ["", ...after] : [])];
 }
 
+/** Last few Prompts before the shown one, dimmed, newest first: the trail D and E share. */
+function trail(e: Entry, list: Entry[], w: number, n: number): string[] {
+	const sel = list.indexOf(e);
+	return list.slice(Math.max(0, sel - n), sel).reverse().map(x => DIM + feedLine(x, false, w).replace(/\x1b\[0m/g, RESET + DIM) + RESET);
+}
+
+function tipLine(r: Review, w: number): string[] {
+	return wrap([{ t: r.tip ?? "", s: fg(230) + ITAL }], w, "   " + fg(220) + "▌ " + RESET);
+}
+
+// ── Variant D: Focus + trail — header, Rewrite diff, Tip; earlier Prompts dimmed below ─
+
+function variantD(e: Entry, view: View, w: number, list: Entry[]): string[] {
+	const head: Seg[] = [scopeTag(e), { t: `  ${hhmm(e.at)}   ` }, ...(e.state === "reviewed" && e.review ? counts(e.review) : [])];
+	const link = linkSegs(e, view, "log ↗");
+	const headLine = wrap(head, w, " ")[0];
+	const linkLine = link.map(piece).join("");
+	const out = [rpad(headLine, w - visible(linkLine)) + linkLine, ""];
+	const st = stateBlock(e, w);
+	if (st) out.push(...st.map(l => "  " + l));
+	else if (!e.review!.findings.length) out.push(...wrap([{ t: "✓ ", s: fg(114) + BOLD }, { t: e.text }], w, "   "));
+	else {
+		const r = e.review!;
+		const d = diff(e.text, r.rewrite ?? e.text, r.findings).map((p): Seg => ({ t: p.t, s: p.op === "-" ? DEL : p.op === "+" ? INS : undefined }));
+		out.push(...wrap(d, w, "   "), "", ...tipLine(r, w));
+	}
+	const t = trail(e, list, w, 3);
+	return t.length ? [...out, "", "", " " + fg(238) + "earlier " + "┄".repeat(w - 10) + RESET, ...t] : out;
+}
+
+// ── Variant E: Ladder — short trail on top, the Prompt line, then its Findings as rungs and the Tip; no Rewrite ─
+
+function variantE(e: Entry, view: View, w: number, list: Entry[]): string[] {
+	const out = [...trail(e, list, w, 3).reverse(), feedLine(e, true, w), ""];
+	const st = stateBlock(e, w - 4);
+	if (st) out.push(...st.map(l => "    " + l));
+	else if (!e.review!.findings.length) out.push(...wrap([{ t: "✓ nothing to fix", s: fg(114) + BOLD }], w, "     "));
+	else {
+		const r = e.review!;
+		const qw = Math.min(26, Math.max(...r.findings.map(f => f.quote.length)) + 2);
+		for (const f of r.findings)
+			out.push("     " + bg(CAT[f.category].bg) + fg(231) + BOLD + ` ${CAT[f.category].glyph} ` + RESET + "  " + rpad(DEL + clip(f.quote, qw) + RESET, qw) + fg(240) + "→ " + RESET + INS + f.fix + RESET);
+		out.push("", ...tipLine(r, w).map(l => "  " + l));
+	}
+	const linkLine = linkSegs(e, view, "full Review ↗").map(piece).join("");
+	return [...out, "", " ".repeat(Math.max(0, w - visible(linkLine))) + linkLine];
+}
+
 // ── app ──────────────────────────────────────────────────────────────────────
 
 const VARIANTS = [
+	{ key: "D", name: "Focus + trail", render: variantD },
+	{ key: "E", name: "Ladder", render: variantE },
 	{ key: "A", name: "Card", render: variantA },
 	{ key: "B", name: "Rewrite-first", render: variantB },
 	{ key: "C", name: "Feed", render: variantC },
@@ -488,13 +538,19 @@ if (args.includes("--html")) {
 	const main = entries[5].id;
 	const states: [string, string][] = [["No Findings", entries[1].id], ["Pending", pending.id], ["Failed", entries[3].id], ["Skipped, too long", entries[4].id], ["Another Prompt with Findings", entries[0].id]];
 	const pitch: Record<string, string> = {
-		A: "Show everything: the Prompt with errors marked, the Rewrite as a diff, a Findings table, and the Tip.",
-		B: "Show only the corrected sentence: one diff coloured by category, then the Tip. The briefest.",
-		C: "Show history: one line per Prompt, the selected one opened with Findings and why, a plain Rewrite to copy, and the Tip.",
+		D: "A's colours, one block: the Rewrite diff and the Tip, with the last three Prompts dimmed underneath. No Findings table, no repeated Prompt.",
+		E: "C's history line, short: three earlier Prompts above, then this Prompt's Findings as quote → fix rungs and the Tip. No Rewrite (it is in the log).",
+		A: "Round 1: everything — marked Prompt, Rewrite diff, Findings table, Tip.",
+		C: "Round 1: full feed, Findings with why, plain Rewrite, Tip.",
 	};
-	const cards = VARIANTS.map((v, k) => `<section class="card"><h2>${v.key} · ${v.name}</h2><p class="angle">${pitch[v.key]}</p>${shot(k, main)}
+	const card = (key: string) => {
+		const k = VARIANTS.findIndex(v => v.key === key), v = VARIANTS[k];
+		return `<section class="card"><h2>${v.key} · ${v.name}</h2><p class="angle">${pitch[v.key]}</p>${shot(k, main)}
 <details><summary>Other states in ${v.key}</summary>${states.map(([label, id]) => `<h3>${label}</h3>${shot(k, id)}`).join("")}</details>
-<button onclick="navigator.clipboard.writeText('${v.key}');this.textContent='Copied ${v.key}: paste it back'">Pick ${v.key}</button></section>`).join("");
+<button onclick="navigator.clipboard.writeText('${v.key}');this.textContent='Copied ${v.key}: paste it back'">Pick ${v.key}</button></section>`;
+	};
+	const cards = ["D", "E"].map(card).join("");
+	const earlier = ["A", "C"].map(card).join("");
 	writeFileSync(outPath, `<!doctype html><meta charset="utf-8"><title>PROTOTYPE · Watcher layouts (issue #7)</title>
 <style>
 :root{--bg:#fff;--fg:#14171a;--mut:#5d6b7a;--line:#e3e8ef;--card:#f7f9fb;--accent:#c2410c}
@@ -509,9 +565,10 @@ pre.term a{text-decoration:none}summary{cursor:pointer;color:var(--mut);font-siz
 button{align-self:flex-start;font:inherit;font-size:14px;padding:8px 14px;border-radius:7px;cursor:pointer;border:1px solid var(--accent);background:transparent;color:var(--accent)}
 button:hover{background:var(--accent);color:var(--bg)}
 </style>
-<h1>Watcher layouts: pick one, or combine parts</h1>
-<p class="lede">Each layout shows the same Prompt with four Findings, in the terminal's own colours. Open “Other states” to see a clean Prompt, a pending Review, a failed Review, and a skipped Prompt. Judge the structure and how easy it is to read. The made-up Prompts don't matter. The top line has the Scope tabs; links open stand-in Review log pages.</p>
-<div class="grid">${cards}</div>`);
+<h1>Watcher layouts, round 2: between A and C, less crowded</h1>
+<p class="lede">D and E keep A's and C's colours and drop the parts that repeat each other. Both show the same Prompt with four Findings; open “Other states” for a clean Prompt, a pending Review, a failed Review, and a skipped Prompt. Round 1's A and C are at the bottom for comparison.</p>
+<div class="grid">${cards}</div>
+<details style="margin-top:28px"><summary>Round 1: A and C, for comparison</summary><div class="grid" style="margin-top:16px">${earlier}</div></details>`);
 	process.exit(0);
 }
 
