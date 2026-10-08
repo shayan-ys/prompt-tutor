@@ -4,6 +4,7 @@
 //   bun prototypes/watcher/watcher.ts              interactive (needs a TTY)
 //   bun prototypes/watcher/watcher.ts --real FILE  use a results-v2.json from prototype/review-schema (local only, never commit it)
 //   bun prototypes/watcher/watcher.ts --dump       print every variant × entry once, for review without a TTY
+//   bun prototypes/watcher/watcher.ts --html OUT   write a comparison page with every layout and state, for viewing in a browser
 //
 // Keys: ←/→ variant · j/k (↑/↓) older/newer Prompt · s Scope (all → work → personal) · o links (OSC 8 / plain)
 //       space simulate a new Prompt (pending, then reviewed) · q quit
@@ -224,7 +225,7 @@ function stubUrl(e: Entry, view: View): string {
 function writeStubs(entries: Entry[]) {
 	const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 	for (const e of entries) {
-		const r = e.review;
+		const r = e.state === "reviewed" ? e.review : undefined;
 		const body = `<h1>Review log stand-in · ${e.scope} · ${e.at.toISOString()}</h1><p>${esc(e.text)}</p><p><b>${e.state}</b> ${esc(e.problem ?? "")}</p>${
 			r ? `<ul>${r.findings.map(f => `<li>[${f.category}] <del>${esc(f.quote)}</del> → <ins>${esc(f.fix)}</ins> — ${esc(f.why)}</li>`).join("")}</ul><p>${esc(r.rewrite ?? "")}</p><p><i>${esc(r.tip ?? "")}</i></p>` : ""
 		}`;
@@ -431,6 +432,89 @@ if (args.includes("--dump")) {
 	process.exit(0);
 }
 
+/** xterm-256 colour index → CSS hex. */
+function xterm(n: number): string {
+	const base = ["000000", "cd0000", "00cd00", "cdcd00", "0000ee", "cd00cd", "00cdcd", "e5e5e5", "7f7f7f", "ff0000", "00ff00", "ffff00", "5c5cff", "ff00ff", "00ffff", "ffffff"];
+	if (n < 16) return `#${base[n]}`;
+	if (n >= 232) return `#${(8 + 10 * (n - 232)).toString(16).padStart(2, "0").repeat(3)}`;
+	const lv = [0, 95, 135, 175, 215, 255], i = n - 16;
+	return `#${[Math.floor(i / 36), Math.floor(i / 6) % 6, i % 6].map(k => lv[k].toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Terminal frame → HTML spans, so the layouts can be looked at without running a TTY. */
+function ansiToHtml(s: string): string {
+	const esc = (t: string) => t.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
+	let st: { b?: boolean; d?: boolean; i?: boolean; u?: boolean; x?: boolean; v?: boolean; fg?: number; bg?: number } = {};
+	let href: string | null = null, out = "";
+	for (const part of s.split(/(\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b]*\x1b\\)/)) {
+		const osc = part.match(/^\x1b\]8;;([^\x1b]*)\x1b\\$/);
+		if (osc) { href = osc[1] || null; continue; }
+		const sgr = part.match(/^\x1b\[([0-9;]*)m$/);
+		if (sgr) {
+			const c = sgr[1].split(";").map(Number);
+			for (let k = 0; k < c.length; k++) {
+				const v = c[k];
+				if (v === 0) st = {};
+				else if (v === 1) st.b = true; else if (v === 2) st.d = true; else if (v === 3) st.i = true;
+				else if (v === 4) st.u = true; else if (v === 7) st.v = true; else if (v === 9) st.x = true;
+				else if (v === 38 && c[k + 1] === 5) st.fg = c[(k += 2)];
+				else if (v === 48 && c[k + 1] === 5) st.bg = c[(k += 2)];
+			}
+			continue;
+		}
+		if (!part) continue;
+		let fgc = st.fg !== undefined ? xterm(st.fg) : "#d4d4d4", bgc = st.bg !== undefined ? xterm(st.bg) : "";
+		if (st.v) [fgc, bgc] = [bgc || "#1b1d22", fgc];
+		const css = [`color:${fgc}`, bgc && `background:${bgc}`, st.b && "font-weight:700", st.d && "opacity:.55", st.i && "font-style:italic",
+			(st.u || st.x) && `text-decoration:${[st.u && "underline", st.x && "line-through"].filter(Boolean).join(" ")}`].filter(Boolean).join(";");
+		const span = `<span style="${css}">${esc(part)}</span>`;
+		out += href ? `<a href="${href}" target="_blank">${span}</a>` : span;
+	}
+	return out;
+}
+
+if (args.includes("--html")) {
+	const outPath = args[args.indexOf("--html") + 1];
+	const pending: Entry = { ...entries[2], id: `${entries[2].id}-p`, state: "pending", pendingSince: Date.now() - 3000, at: new Date(+entries.at(-1)!.at + 60_000) };
+	entries.push(pending);
+	writeStubs([pending]);
+	const shot = (k: number, id: string) => {
+		variant = k;
+		selected = id;
+		const lines = frame(78, 60).split("\n").slice(0, -1);
+		while (lines.length && lines.at(-1)!.replace(/\x1b\[[0-9;]*m/g, "").trim() === "") lines.pop();
+		return `<pre class="term">${lines.map(ansiToHtml).join("\n")}</pre>`;
+	};
+	const main = entries[5].id;
+	const states: [string, string][] = [["No Findings", entries[1].id], ["Pending", pending.id], ["Failed", entries[3].id], ["Skipped, too long", entries[4].id], ["Another Prompt with Findings", entries[0].id]];
+	const pitch: Record<string, string> = {
+		A: "Show everything: the Prompt with errors marked, the Rewrite as a diff, a Findings table, and the Tip.",
+		B: "Show only the corrected sentence: one diff coloured by category, then the Tip. The briefest.",
+		C: "Show history: one line per Prompt, the selected one opened with Findings and why, a plain Rewrite to copy, and the Tip.",
+	};
+	const cards = VARIANTS.map((v, k) => `<section class="card"><h2>${v.key} · ${v.name}</h2><p class="angle">${pitch[v.key]}</p>${shot(k, main)}
+<details><summary>Other states in ${v.key}</summary>${states.map(([label, id]) => `<h3>${label}</h3>${shot(k, id)}`).join("")}</details>
+<button onclick="navigator.clipboard.writeText('${v.key}');this.textContent='Copied ${v.key}: paste it back'">Pick ${v.key}</button></section>`).join("");
+	writeFileSync(outPath, `<!doctype html><meta charset="utf-8"><title>PROTOTYPE · Watcher layouts (issue #7)</title>
+<style>
+:root{--bg:#fff;--fg:#14171a;--mut:#5d6b7a;--line:#e3e8ef;--card:#f7f9fb;--accent:#c2410c}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1418;--fg:#eef2f6;--mut:#9aa8b6;--line:#243039;--card:#161d23;--accent:#fb923c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);padding:32px;font:16px/1.5 ui-sans-serif,-apple-system,sans-serif}
+h1{font-size:24px;margin:0 0 6px}p.lede{margin:0 0 24px;color:var(--mut);max-width:90ch}
+.grid{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(min(680px,100%),1fr))}
+.card{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--card);padding:16px;display:flex;flex-direction:column;gap:10px}
+h2{font-size:18px;margin:0}h3{font-size:14px;margin:14px 0 6px;color:var(--mut)}.angle{color:var(--mut);font-size:14px;margin:0}
+pre.term{margin:0;background:#1b1d22;padding:12px 14px;border-radius:8px;font:12.5px/1.35 ui-monospace,Menlo,monospace;overflow-x:auto;white-space:pre}
+pre.term a{text-decoration:none}summary{cursor:pointer;color:var(--mut);font-size:14px}
+button{align-self:flex-start;font:inherit;font-size:14px;padding:8px 14px;border-radius:7px;cursor:pointer;border:1px solid var(--accent);background:transparent;color:var(--accent)}
+button:hover{background:var(--accent);color:var(--bg)}
+</style>
+<h1>Watcher layouts: pick one, or combine parts</h1>
+<p class="lede">Each layout shows the same Prompt with four Findings, in the terminal's own colours. Open “Other states” to see a clean Prompt, a pending Review, a failed Review, and a skipped Prompt. Judge the structure and how easy it is to read. The made-up Prompts don't matter. The top line has the Scope tabs; links open stand-in Review log pages.</p>
+<div class="grid">${cards}</div>`);
+	process.exit(0);
+}
+
 if (!process.stdin.isTTY) {
 	console.error("Needs a TTY; use --dump to print every layout.");
 	process.exit(1);
@@ -460,7 +544,7 @@ process.stdin.on("data", (b: Buffer) => {
 		const e: Entry = { ...src, id: `${src.id}-n${Date.now() % 10000}`, at: new Date(newest + 60_000), state: "pending", pendingSince: Date.now() };
 		entries.push(e);
 		writeStubs([e]);
-		setTimeout(() => ((e.state = "reviewed"), draw()), 3500);
+		setTimeout(() => ((e.state = "reviewed"), writeStubs([e]), draw()), 3500);
 	}
 	draw();
 });
