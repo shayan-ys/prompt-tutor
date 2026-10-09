@@ -1,6 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { type FSWatcher, watch } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import {
+	open,
+	readdir,
+	readFile,
+	rename,
+	stat,
+	unlink,
+} from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../core/config.ts";
 import {
 	listMonths,
@@ -9,7 +17,13 @@ import {
 	readRecentRecords,
 } from "../core/store.ts";
 import type { Config, ConfigResult, PromptRecord } from "../core/types.ts";
-import { renderErrorFrame, renderFrame } from "./render.ts";
+import {
+	applyWatcherAction,
+	reconcileWatcherSelection,
+	type WatcherAction,
+	type WatcherSelection,
+} from "./navigation.ts";
+import { bodyScrollRange, renderErrorFrame, renderFrame } from "./render.ts";
 
 const RECENT_LIMIT = 100;
 const POLL_INTERVAL_MS = 2_000;
@@ -100,6 +114,7 @@ function renderSnapshot(
 	snapshot: WatcherSnapshot,
 	view: WatcherView,
 	selectedId: string | null,
+	scroll: number,
 	width: number,
 	height: number,
 	now: number,
@@ -118,10 +133,12 @@ function renderSnapshot(
 		records: snapshot.records,
 		view,
 		selectedId,
+		scroll,
 		width,
 		height,
 		now,
 		newerVersion: snapshot.newerVersion,
+		scrollAware: true,
 	});
 }
 
@@ -129,9 +146,116 @@ export type OnceResult =
 	| { ok: true; frame: string }
 	| { ok: false; error: string };
 
+function defaultSelection(): WatcherSelection {
+	return { view: "all", selectedId: null, scroll: 0 };
+}
+
+function parseDashboardState(
+	contents: string,
+	snapshot: Extract<WatcherSnapshot, { kind: "ready" }>,
+): WatcherSelection {
+	try {
+		const value: unknown = JSON.parse(contents);
+		if (!value || typeof value !== "object" || Array.isArray(value))
+			return defaultSelection();
+		const state = value as {
+			version?: unknown;
+			view?: unknown;
+			selected?: unknown;
+			scroll?: unknown;
+			latest?: unknown;
+		};
+		if (
+			state.version !== 1 ||
+			typeof state.view !== "string" ||
+			(state.selected !== null && typeof state.selected !== "string")
+		)
+			return defaultSelection();
+		const selection = reconcileWatcherSelection(
+			{
+				view: state.view,
+				selectedId: state.selected,
+				scroll:
+					typeof state.scroll === "number" &&
+					Number.isSafeInteger(state.scroll) &&
+					state.scroll >= 0
+						? state.scroll
+						: 0,
+			},
+			snapshot.config.scopes,
+			snapshot.records,
+		);
+		const latest =
+			selection.view === "all"
+				? snapshot.records[0]?.id
+				: snapshot.records.find((record) => record.scope === selection.view)
+						?.id;
+		return {
+			...selection,
+			scroll:
+				selection.selectedId === null && state.latest !== latest
+					? 0
+					: selection.scroll,
+		};
+	} catch {
+		return defaultSelection();
+	}
+}
+
+async function readDashboardState(
+	path: string,
+	snapshot: Extract<WatcherSnapshot, { kind: "ready" }>,
+): Promise<WatcherSelection> {
+	try {
+		return parseDashboardState(await readFile(path, "utf8"), snapshot);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT")
+			return defaultSelection();
+		throw error;
+	}
+}
+
+async function writeDashboardState(
+	path: string,
+	selection: WatcherSelection,
+	latest: string | undefined,
+): Promise<void> {
+	const temporary = join(
+		dirname(path),
+		`.${basename(path)}.${process.pid}.${randomUUID()}.tmp`,
+	);
+	let temporaryCreated = false;
+	try {
+		const handle = await open(temporary, "wx", 0o600);
+		temporaryCreated = true;
+		try {
+			await handle.writeFile(
+				`${JSON.stringify({
+					version: 1,
+					view: selection.view,
+					selected: selection.selectedId,
+					scroll: selection.scroll,
+					...(selection.scroll > 0 ? { latest } : {}),
+				})}\n`,
+				"utf8",
+			);
+		} finally {
+			await handle.close();
+		}
+		await rename(temporary, path);
+		temporaryCreated = false;
+	} finally {
+		if (temporaryCreated) {
+			await unlink(temporary).catch((error: unknown) => {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			});
+		}
+	}
+}
+
 /**
- * Render the all view once for a host such as devdash, without opening a TTY or writing to the store.
- * A config or read failure is returned as a one-line error so the host can keep its last good frame.
+ * Render one frame for a host such as devdash. Dashboard state is separate from the read-only Prompt store.
+ * A config or store read failure is returned as a one-line error so the host can keep its last good frame.
  */
 export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 	let snapshot: WatcherSnapshot;
@@ -153,20 +277,108 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 			ok: false,
 			error: oneLine(`could not read the prompt store: ${snapshot.error}`),
 		};
-	return {
-		ok: true,
-		frame: renderFrame({
-			config: snapshot.config,
-			records: snapshot.records,
-			view: "all",
-			selectedId: null,
-			width,
-			height,
-			now: Date.now(),
-			newerVersion: snapshot.newerVersion,
-			embedded: true,
-		}),
-	};
+
+	const statePath = process.env.DEVDASH_STATE_FILE || undefined;
+	let selection = defaultSelection();
+	if (statePath !== undefined) {
+		try {
+			selection = await readDashboardState(statePath, snapshot);
+		} catch (error) {
+			return {
+				ok: false,
+				error: oneLine(
+					`could not read DEVDASH_STATE_FILE: ${failureMessage(error)}`,
+				),
+			};
+		}
+	}
+
+	if (statePath !== undefined)
+		selection.scroll = Math.min(
+			selection.scroll,
+			bodyScrollRange({
+				config: snapshot.config,
+				records: snapshot.records,
+				view: selection.view,
+				selectedId: selection.selectedId,
+				width,
+				height,
+				newerVersion: snapshot.newerVersion,
+				embedded: true,
+				showNavigation: true,
+				scrollAware: true,
+			}),
+		);
+	if (statePath !== undefined) {
+		const actionValue = process.env.DEVDASH_ACTION;
+		let action: WatcherAction | undefined;
+		if (actionValue !== undefined) {
+			if (
+				actionValue !== "newer" &&
+				actionValue !== "older" &&
+				actionValue !== "scope" &&
+				actionValue !== "scroll-down" &&
+				actionValue !== "scroll-up"
+			)
+				return {
+					ok: false,
+					error: `unknown DEVDASH_ACTION: ${JSON.stringify(actionValue)}`,
+				};
+			action = actionValue;
+		}
+		if (action)
+			selection = applyWatcherAction(
+				selection,
+				action,
+				snapshot.config.scopes,
+				snapshot.records,
+				bodyScrollRange({
+					config: snapshot.config,
+					records: snapshot.records,
+					view: selection.view,
+					selectedId: selection.selectedId,
+					width,
+					height,
+					newerVersion: snapshot.newerVersion,
+					embedded: true,
+					showNavigation: true,
+					scrollAware: true,
+				}),
+			);
+	}
+
+	const frame = renderFrame({
+		config: snapshot.config,
+		records: snapshot.records,
+		view: selection.view,
+		selectedId: selection.selectedId,
+		scroll: selection.scroll,
+		width,
+		height,
+		now: Date.now(),
+		newerVersion: snapshot.newerVersion,
+		embedded: true,
+		showNavigation: statePath !== undefined,
+		scrollAware: statePath !== undefined,
+	});
+	if (statePath !== undefined) {
+		try {
+			const latest =
+				selection.view === "all"
+					? snapshot.records[0]?.id
+					: snapshot.records.find((record) => record.scope === selection.view)
+							?.id;
+			await writeDashboardState(statePath, selection, latest);
+		} catch (error) {
+			return {
+				ok: false,
+				error: oneLine(
+					`could not write DEVDASH_STATE_FILE: ${failureMessage(error)}`,
+				),
+			};
+		}
+	}
+	return { ok: true, frame };
 }
 
 function visibleRecords(
@@ -234,6 +446,7 @@ export async function startWatcher(): Promise<void> {
 	};
 	let view: WatcherView = "all";
 	let selectedId: string | null = null;
+	let scroll = 0;
 	let currentConfigKey = "";
 	let currentDirectorySignature = "";
 	let isRefreshing = false;
@@ -247,7 +460,7 @@ export async function startWatcher(): Promise<void> {
 		const columns = process.stdout.columns ?? 80;
 		const rows = process.stdout.rows ?? 24;
 		process.stdout.write(
-			`\x1b[H\x1b[2J${renderSnapshot(snapshot, view, selectedId, columns, rows, Date.now())}`,
+			`\x1b[H\x1b[2J${renderSnapshot(snapshot, view, selectedId, scroll, columns, rows, Date.now())}`,
 		);
 	};
 
@@ -280,6 +493,10 @@ export async function startWatcher(): Promise<void> {
 		try {
 			do {
 				refreshAgain = false;
+				const previousLatest =
+					snapshot.kind === "ready"
+						? visibleRecords(snapshot, view)[0]?.id
+						: undefined;
 				try {
 					snapshot = await loadWatcherSnapshot();
 				} catch (error) {
@@ -299,10 +516,20 @@ export async function startWatcher(): Promise<void> {
 					closeWatchers();
 					currentDirectorySignature = "";
 				}
-				if (selectedId !== null && snapshot.kind === "ready") {
-					const inView = visibleRecords(snapshot, view);
-					if (!inView.some((record) => record.id === selectedId))
-						selectedId = null;
+				if (snapshot.kind === "ready") {
+					const selection = reconcileWatcherSelection(
+						{ view, selectedId, scroll },
+						snapshot.config.scopes,
+						snapshot.records,
+					);
+					scroll = selection.scroll;
+					if (
+						selectedId === null &&
+						previousLatest !== visibleRecords(snapshot, selection.view)[0]?.id
+					)
+						scroll = 0;
+					view = selection.view;
+					selectedId = selection.selectedId;
 				}
 				draw();
 			} while (refreshAgain && !stopped);
@@ -360,33 +587,32 @@ export async function startWatcher(): Promise<void> {
 			return;
 		}
 		if (snapshot.kind !== "ready") return;
-		if (key === "s") {
-			const views = [
-				"all",
-				...snapshot.config.scopes.map((scope) => scope.name),
-			];
-			const currentIndex = views.indexOf(view);
-			view =
-				currentIndex >= views.length - 1 ? "all" : views[currentIndex + 1]!;
-			selectedId = null;
-			draw();
-			return;
-		}
-		const records = visibleRecords(snapshot, view);
-		const selectedIndex =
-			selectedId === null
-				? 0
-				: Math.max(
-						0,
-						records.findIndex((record) => record.id === selectedId),
-					);
-		if (key === "k" || key === "\x1b[B") {
-			if (selectedIndex + 1 < records.length)
-				selectedId = records[selectedIndex + 1]!.id;
-		} else if (key === "j" || key === "\x1b[A") {
-			if (selectedIndex <= 1) selectedId = null;
-			else selectedId = records[selectedIndex - 1]!.id;
-		}
+		let action: WatcherAction;
+		if (key === "s") action = "scope";
+		else if (key === "k" || key === "\x1b[B") action = "older";
+		else if (key === "j" || key === "\x1b[A") action = "newer";
+		else if (key === "J") action = "scroll-down";
+		else if (key === "K") action = "scroll-up";
+		else return;
+		const selection = applyWatcherAction(
+			{ view, selectedId, scroll },
+			action,
+			snapshot.config.scopes,
+			snapshot.records,
+			bodyScrollRange({
+				config: snapshot.config,
+				records: snapshot.records,
+				view,
+				selectedId,
+				width: process.stdout.columns ?? 80,
+				height: process.stdout.rows ?? 24,
+				newerVersion: snapshot.newerVersion,
+				scrollAware: true,
+			}),
+		);
+		view = selection.view;
+		selectedId = selection.selectedId;
+		scroll = selection.scroll;
 		draw();
 	};
 	const onResize = () => draw();

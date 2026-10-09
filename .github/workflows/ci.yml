@@ -26,6 +26,8 @@ jobs:
         env:
           HOME: ${{ runner.temp }}/prompt-tutor-omp-home
           OMP_PROFILE: smoke
+          # omp --print refuses to start without a default model; the slash command never calls it.
+          OPENAI_API_KEY: ci-placeholder
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PREVIOUS_MAIN_SHA: ${{ github.event.before }}
         run: |

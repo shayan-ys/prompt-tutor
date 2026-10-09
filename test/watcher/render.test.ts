@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Config, PromptRecord } from "../../src/core/types.ts";
-import { renderErrorFrame, renderFrame } from "../../src/watcher/render.ts";
+import {
+	bodyScrollRange,
+	renderErrorFrame,
+	renderFrame,
+} from "../../src/watcher/render.ts";
 
 const config: Config = {
 	path: null,
@@ -196,6 +200,184 @@ describe("Watcher frame", () => {
 	test("shows the newer-format upgrade warning", () => {
 		const output = frame(record(), [record()], 1);
 		expect(output).toContain("written by a newer prompt-tutor — upgrade");
+	});
+
+	test("scrolls the final Review line into view in embedded and interactive frames", () => {
+		const reviewed = record({
+			review: {
+				findings: record().review?.findings ?? [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 13 },
+					(_, index) => `Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		for (const [width, height] of [
+			[50, 12],
+			[80, 14],
+		]) {
+			for (const embedded of [false, true]) {
+				const options = {
+					config,
+					records: [reviewed],
+					view: "all",
+					selectedId: reviewed.id,
+					width,
+					height,
+					embedded,
+					newerVersion: 1,
+					scrollAware: true,
+				};
+				const maxScroll = bodyScrollRange(options);
+				expect(maxScroll).toBeGreaterThanOrEqual(0);
+				let scroll = 0;
+				let output = "";
+				while (scroll <= maxScroll) {
+					output = plain(renderFrame({ ...options, scroll }));
+					if (!/… \d+ more lines?/.test(output)) break;
+					scroll++;
+				}
+				expect(output).not.toMatch(/… \d+ more lines?/);
+				expect(output).toContain("Review line 13");
+			}
+		}
+	});
+	test("keeps body room ahead of the trail in compact scroll-aware frames", () => {
+		const selected = record({
+			id: "selected",
+			captured_at: "2026-10-08T14:00:00.000Z",
+			review: {
+				findings: record().review?.findings ?? [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 20 },
+					(_, index) =>
+						`Selected Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		const records = [
+			selected,
+			...["first", "second", "final"].map((name, index) =>
+				record({
+					id: `older-${name}`,
+					captured_at: `2026-10-08T${String(13 - index).padStart(2, "0")}:00:00.000Z`,
+					text: `Older ${name} Prompt.`,
+				}),
+			),
+		];
+		for (const [height, embedded] of [
+			[12, false],
+			[10, true],
+		] as const) {
+			const options = {
+				config,
+				records,
+				view: "all",
+				selectedId: selected.id,
+				width: 80,
+				height,
+				embedded,
+				showNavigation: true,
+				scrollAware: true,
+			};
+			const initial = plain(renderFrame(options));
+			expect(initial).toContain("Selected Review line 01");
+
+			let output = initial;
+			for (let scroll = 1; scroll <= bodyScrollRange(options); scroll++) {
+				output = plain(renderFrame({ ...options, scroll }));
+			}
+			expect(output).toContain("Selected Review line 20");
+		}
+	});
+
+	test("fits stateless embedded frames body-first before clipping the trail", () => {
+		const selected = record({
+			id: "stateless-selected",
+			review: {
+				findings: record().review?.findings ?? [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 20 },
+					(_, index) =>
+						`Stateless Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		const records = [
+			selected,
+			...["one", "two", "three"].map((name, index) =>
+				record({
+					id: `older-${name}`,
+					captured_at: `2026-10-08T${String(12 - index).padStart(2, "0")}:00:00.000Z`,
+					text: `Older ${name} Prompt.`,
+				}),
+			),
+		];
+		const output = plain(
+			renderFrame({
+				config,
+				records,
+				view: "all",
+				selectedId: selected.id,
+				width: 80,
+				height: 12,
+				embedded: true,
+				showNavigation: false,
+				scrollAware: false,
+			}),
+		);
+		expect(output).toContain("Stateless Review line 07");
+		expect(output).not.toContain("Stateless Review line 08");
+		expect(output).toContain("… ");
+		expect(output).toContain("more lines");
+		expect(output).not.toContain("Older one Prompt.");
+	});
+
+	test("keeps trail rows visible when a tiny body room cannot fit scroll markers", () => {
+		const selected = record({
+			id: "selected",
+			captured_at: "2026-10-08T14:00:00.000Z",
+			review: {
+				findings: [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 13 },
+					(_, index) => `Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		const trail = [
+			record({
+				id: "trail-1",
+				captured_at: "2026-10-08T13:00:00.000Z",
+				text: "Trail row one.",
+			}),
+			record({
+				id: "trail-2",
+				captured_at: "2026-10-08T12:00:00.000Z",
+				text: "Trail row two.",
+			}),
+		];
+		const output = plain(
+			renderFrame({
+				config,
+				records: [selected, ...trail],
+				view: "all",
+				selectedId: selected.id,
+				scroll: 1,
+				width: 50,
+				height: 12,
+				embedded: true,
+				showNavigation: true,
+			}),
+		);
+		expect(output).toContain("Trail row one.");
+		expect(output).toContain("Trail row two.");
+		expect(output).not.toMatch(/… \d+ lines? above/);
+		expect(output).not.toMatch(/… \d+ more lines?/);
 	});
 
 	test("renders config errors with their path and explanation", () => {

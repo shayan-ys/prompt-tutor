@@ -69,17 +69,20 @@ Sources: [Ticket #7 — Watcher terminal layout](https://github.com/shayan-ys/pr
 - Below a dimmed `earlier` rule, show the last three Prompts in the current view, newest first, with time, Scope letter, status, and clipped Prompt. Status is one colored `S`, `G`, or `F` per Finding, `✓ clean`, a pending spinner, `EN ?`, or `– skipped`.
 - Use 256-color SGR: spelling pink (213), grammar orange (214), fluency cyan (81); deletions red (203), insertions green (114), and italic Tip. Diffing SHOULD anchor Finding spans before diffing surrounding words so nearby Rewrite changes do not strike out whole phrases.
 - The selected states are clean (`✓` and Prompt), pending (spinner, `reviewing… Ns`, dimmed Prompt), failed (`EN ?`, short reason, dimmed Prompt), and skipped (grey reason and clipped Prompt).
-- The Watcher follows the newest Prompt in its view. `j` and `k` move older/newer; `s` cycles all → each Scope → following latest. Scope views link to that Scope's stub; all view links to the all-Scopes stub.
+- The Watcher follows the newest Prompt in its view. `j` and `k` move older/newer; `J` and `K` scroll the selected Review body down/up one line; `s` cycles all → each Scope → following latest. Scope views link to that Scope's stub; all view links to the all-Scopes stub.
 
 ## Watcher in a dashboard
 
 Sources: [Ticket #17 — devdash section: what prompt-tutor shows in devdash](https://github.com/shayan-ys/prompt-tutor/issues/17), [devdash issue #5 — Custom integrations](https://github.com/shayan-ys/devdash/issues/5), [devdash README — Example: prompt-tutor](https://github.com/shayan-ys/devdash#example-prompt-tutor).
 
-- `prompt-tutor --once` is the interface for hosts that embed the Watcher, such as a devdash integration. It is a stable contract: changing it is a breaking change.
-- `--once` MUST render the all view, following the newest Prompt, as layout D without the Watcher-only parts: no title line, view tabs, `● following latest` / `◀ N newer` indicator, or key row. The newer-version warning, header, body, and trail stay.
-- `--once` MUST only read: no store or log writes, and no reads from stdin. It sizes the frame from the terminal, or from `COLUMNS` and `LINES` when stdout is not a terminal, and MUST NOT exceed either. It MUST emit only SGR colours and OSC 8 hyperlinks as escape sequences.
-- An empty store is not an error: print the empty frame (`No Prompts yet.`) and exit 0. A config or store read failure MUST print nothing to stdout, write one line to stderr, and exit 1, so the host shows its own failure state over its last good frame.
-- Setup instructions for devdash live in devdash's README; prompt-tutor's README links to them. Taking Watcher keys inside a host is open: see "Open items".
+- `prompt-tutor --once` is the interface for hosts that embed the Watcher, such as a devdash integration. It remains a stable contract.
+- With `DEVDASH_STATE_FILE` unset, `--once` renders the all view following the newest Prompt, without the Watcher's title line, view tabs, follow indicator, or key row. It reads the store and logs but writes nothing.
+- With `DEVDASH_STATE_FILE` set, `--once` reads and writes `{"version":1,"view":"all"|"<Scope>","selected":"<Prompt id>"|null,"scroll":0}`. Missing, empty, invalid, or unsupported-version state starts in the all view following latest. The `scroll` field is optional; missing, negative, fractional, or otherwise invalid values mean zero. While the body is scrolled, state also includes the latest Prompt id; this field is used only to reset the scroll offset when a new latest Prompt arrives while following. A view for a Scope no longer configured becomes all; a selection no longer in its view follows latest.
+- The supported `DEVDASH_ACTION` values are `newer`, `older`, `scope`, `scroll-down`, and `scroll-up`: `newer` is the Watcher's `j`/up behavior (at selected index 0 or 1, follow latest); `older` is `k`/down (stays at the oldest Prompt); `scope` is `s` (cycle all → each configured Scope → all and reset selection to following latest); `scroll-down` and `scroll-up` are `J` and `K` (move the selected Review body by one line, clamped to the hidden body range). Scroll resets when the selected Prompt or view changes, or when following latest and a new latest Prompt arrives.
+- When the state file is set, the frame includes the Watcher's top line with views and the follow indicator, but not its key row. State is written atomically through a temporary file in the same directory, with mode `0600`, only after successful config and store reads.
+- `--once` never reads stdin. It sizes the frame from the terminal, or from `COLUMNS` and `LINES` when stdout is not a terminal, MUST NOT exceed either, and emits only SGR colours and OSC 8 hyperlinks as escape sequences. Without a state file, an action is ignored and nothing is written; with neither variable set, output is unchanged.
+- An empty store is not an error: print the empty frame (`No Prompts yet.`) and exit 0. A config or store read failure MUST print nothing to stdout, write one line to stderr, exit 1, and leave the state file untouched. With a state file set, an unknown action MUST write a message to stderr, exit 1, and leave the state file untouched.
+- Setup instructions for devdash live in devdash's README; prompt-tutor's README links to them.
 
 ## Review log
 
@@ -151,6 +154,6 @@ Sources: [Ticket #9 — OSS setup: license, CI, release process, README, contrib
 
 Sources: [Ticket #9 — OSS setup: license, CI, release process, README, contributor docs](https://github.com/shayan-ys/prompt-tutor/issues/9), [Ticket #19 — Watcher keys inside devdash](https://github.com/shayan-ys/prompt-tutor/issues/19), [ADR 0007 — A Scope's Digest runs only in its `digest_profile`](./adr/0007-digest-runs-in-scope-profile.md).
 
-- `j`/`k` and `s` do not work inside devdash. Ticket #19 decides how prompt-tutor takes them, once devdash lets integrations bind keys in [devdash #7](https://github.com/shayan-ys/devdash/issues/7). Until then, the `--once` contract above holds.
+- `prompt-tutor --once` accepts devdash key actions through `DEVDASH_ACTION` and keeps navigation state through `DEVDASH_STATE_FILE`; without those variables its original one-frame behavior remains.
 - Ticket #9 leaves unverified whether a fork PR's head SHA can be installed through the base repository's GitHub spec; verify that when CI is built and use the fork's own spec if required.
 - All-Scopes Digests remain out of scope for the separation reason above; the all-Scopes Review log is the cross-Scope view.
