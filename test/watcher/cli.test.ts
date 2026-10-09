@@ -72,6 +72,19 @@ describe("prompt-tutor --once", () => {
 			expect(frame).toContain("Match the verb to its subject.");
 			expect(frame).toContain("log ↗");
 			expect(output.stdout).toContain("\x1b]8;;file:");
+			const narrow = spawnSync(process.execPath, [binPath, "--once"], {
+				env: {
+					...process.env,
+					XDG_CONFIG_HOME: configHome,
+					XDG_DATA_HOME: dataHome,
+					COLUMNS: "40",
+					LINES: "12",
+				},
+				encoding: "utf8",
+			});
+			const rows = stripTerminal(narrow.stdout).trimEnd().split("\n");
+			expect(rows.length).toBeLessThanOrEqual(12);
+			for (const row of rows) expect(row.length).toBeLessThanOrEqual(40);
 			expect(await readFile(promptPath, "utf8")).toBe(promptText);
 			expect(await Bun.file(join(store, "log")).exists()).toBe(false);
 		} finally {

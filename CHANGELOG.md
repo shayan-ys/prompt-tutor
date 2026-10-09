@@ -14,3 +14,4 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - `/prompt-tutor install-watcher` to place the Watcher command on `PATH`.
 - Optional Review log retention by `keep_months` and explicit data removal with `prompt-tutor --delete-data [--yes]`.
 - Configurable explanation language for Findings, Tips, and Digest prose while keeping English as the target language.
+- `prompt-tutor --once` sizes its frame from `COLUMNS` and `LINES` when stdout is not a terminal, so dashboards such as devdash can embed it.

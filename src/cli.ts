@@ -9,6 +9,11 @@ With no arguments, run the terminal Watcher.
   --yes           with --delete-data, remove the listed paths
   --help          show this help`;
 
+function sizeFromEnv(name: string): number | undefined {
+	const value = Number(process.env[name]);
+	return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 export async function main(args = process.argv.slice(2)): Promise<void> {
 	if (args.includes("--help")) {
 		if (args.length !== 1) {
@@ -77,8 +82,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 		return;
 	}
 	if (args.includes("--once")) {
-		const width = process.stdout.columns ?? 80;
-		const height = process.stdout.rows ?? 24;
+		// Piped output has no terminal size; a host such as devdash passes its room in COLUMNS and LINES.
+		const width = process.stdout.columns ?? sizeFromEnv("COLUMNS") ?? 80;
+		const height = process.stdout.rows ?? sizeFromEnv("LINES") ?? 24;
 		process.stdout.write(`${await renderOnce(width, height)}\n`);
 		return;
 	}
