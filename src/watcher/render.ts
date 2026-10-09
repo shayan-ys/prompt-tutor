@@ -46,8 +46,10 @@ export interface RenderFrameOptions {
 	height?: number;
 	now?: number;
 	newerVersion?: number;
-	/** One frame for a host: no title line, tabs, follow indicator, or key row unless overridden below. */
+	/** One frame for a host such as devdash: no title line, tabs, follow indicator, or key row. */
 	embedded?: boolean;
+	/** Reserve selected-body room and fit the trail around it for scrollable frames. */
+	scrollAware?: boolean;
 	/** Include the Watcher's view tabs and follow indicator in an embedded frame. */
 	showNavigation?: boolean;
 }
@@ -445,6 +447,7 @@ interface PreparedFrame {
 	older: PromptRecord[];
 	frameCapacity: number;
 	bodyRoom: number;
+	trailSeparatorRows: number;
 }
 
 function prepareFrame(options: RenderFrameOptions): PreparedFrame {
@@ -536,8 +539,22 @@ function prepareFrame(options: RenderFrameOptions): PreparedFrame {
 	}
 
 	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
-	const trailingLines = older.length ? 3 + older.length : 0;
-	const bodyRoom = Math.max(0, frameCapacity - lines.length - trailingLines);
+	const availableRoom = Math.max(0, frameCapacity - lines.length);
+	const scrollAware = options.scrollAware ?? false;
+	let bodyRoom = 0;
+	let trailSeparatorRows = older.length ? 3 : 0;
+	if (scrollAware) {
+		bodyRoom = Math.min(3, availableRoom);
+		const trailRoom = availableRoom - bodyRoom;
+		while (older.length && trailRoom < trailSeparatorRows + older.length) {
+			older.pop();
+		}
+		if (!older.length) trailSeparatorRows = 0;
+		while (trailRoom < trailSeparatorRows + older.length) {
+			trailSeparatorRows--;
+		}
+		bodyRoom = availableRoom - trailSeparatorRows - older.length;
+	}
 	return {
 		width,
 		height,
@@ -547,7 +564,8 @@ function prepareFrame(options: RenderFrameOptions): PreparedFrame {
 		body,
 		older,
 		frameCapacity,
-		bodyRoom,
+		bodyRoom: scrollAware ? bodyRoom : body.length,
+		trailSeparatorRows,
 	};
 }
 
@@ -587,8 +605,17 @@ function fitFrame(lines: string[], height: number, keyRow = true): string {
 /** Render a complete, side-effect-free Watcher frame. */
 export function renderFrame(options: RenderFrameOptions): string {
 	const prepared = prepareFrame(options);
-	const { width, height, now, selected, lines, body, older, bodyRoom } =
-		prepared;
+	const {
+		width,
+		height,
+		now,
+		selected,
+		lines,
+		body,
+		older,
+		bodyRoom,
+		trailSeparatorRows,
+	} = prepared;
 	if (!selected) {
 		lines.push(
 			...wrap(
@@ -629,11 +656,11 @@ export function renderFrame(options: RenderFrameOptions): string {
 		lines.push(...body);
 	}
 	if (older.length) {
-		lines.push(
-			"",
-			"",
-			` ${fg(238)}earlier ${"┄".repeat(Math.max(0, width - 10))}${RESET}`,
-		);
+		if (trailSeparatorRows >= 2) lines.push("", "");
+		if (trailSeparatorRows >= 3)
+			lines.push(
+				` ${fg(238)}earlier ${"┄".repeat(Math.max(0, width - 10))}${RESET}`,
+			);
 		for (const record of older) lines.push(trailLine(record, width, now));
 	}
 	return fitFrame(lines, height, !options.embedded);

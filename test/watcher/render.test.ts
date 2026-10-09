@@ -226,8 +226,8 @@ describe("Watcher frame", () => {
 					width,
 					height,
 					embedded,
-					showNavigation: embedded,
 					newerVersion: 1,
+					scrollAware: true,
 				};
 				const maxScroll = bodyScrollRange(options);
 				expect(maxScroll).toBeGreaterThanOrEqual(0);
@@ -242,6 +242,98 @@ describe("Watcher frame", () => {
 				expect(output).toContain("Review line 13");
 			}
 		}
+	});
+	test("keeps body room ahead of the trail in compact scroll-aware frames", () => {
+		const selected = record({
+			id: "selected",
+			captured_at: "2026-10-08T14:00:00.000Z",
+			review: {
+				findings: record().review?.findings ?? [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 20 },
+					(_, index) =>
+						`Selected Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		const records = [
+			selected,
+			...["first", "second", "final"].map((name, index) =>
+				record({
+					id: `older-${name}`,
+					captured_at: `2026-10-08T${String(13 - index).padStart(2, "0")}:00:00.000Z`,
+					text: `Older ${name} Prompt.`,
+				}),
+			),
+		];
+		for (const [height, embedded] of [
+			[12, false],
+			[10, true],
+		] as const) {
+			const options = {
+				config,
+				records,
+				view: "all",
+				selectedId: selected.id,
+				width: 80,
+				height,
+				embedded,
+				showNavigation: true,
+				scrollAware: true,
+			};
+			const initial = plain(renderFrame(options));
+			expect(initial).toContain("Selected Review line 01");
+
+			let output = initial;
+			for (let scroll = 1; scroll <= bodyScrollRange(options); scroll++) {
+				output = plain(renderFrame({ ...options, scroll }));
+			}
+			expect(output).toContain("Selected Review line 20");
+		}
+	});
+
+	test("fits stateless embedded frames body-first before clipping the trail", () => {
+		const selected = record({
+			id: "stateless-selected",
+			review: {
+				findings: record().review?.findings ?? [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 20 },
+					(_, index) =>
+						`Stateless Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		const records = [
+			selected,
+			...["one", "two", "three"].map((name, index) =>
+				record({
+					id: `older-${name}`,
+					captured_at: `2026-10-08T${String(12 - index).padStart(2, "0")}:00:00.000Z`,
+					text: `Older ${name} Prompt.`,
+				}),
+			),
+		];
+		const output = plain(
+			renderFrame({
+				config,
+				records,
+				view: "all",
+				selectedId: selected.id,
+				width: 80,
+				height: 12,
+				embedded: true,
+				showNavigation: false,
+				scrollAware: false,
+			}),
+		);
+		expect(output).toContain("Stateless Review line 07");
+		expect(output).not.toContain("Stateless Review line 08");
+		expect(output).toContain("… ");
+		expect(output).toContain("more lines");
+		expect(output).not.toContain("Older one Prompt.");
 	});
 
 	test("keeps trail rows visible when a tiny body room cannot fit scroll markers", () => {

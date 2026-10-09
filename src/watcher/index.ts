@@ -138,6 +138,7 @@ function renderSnapshot(
 		height,
 		now,
 		newerVersion: snapshot.newerVersion,
+		scrollAware: true,
 	});
 }
 
@@ -305,6 +306,7 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 				newerVersion: snapshot.newerVersion,
 				embedded: true,
 				showNavigation: true,
+				scrollAware: true,
 			}),
 		);
 	if (statePath !== undefined) {
@@ -340,6 +342,7 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 					newerVersion: snapshot.newerVersion,
 					embedded: true,
 					showNavigation: true,
+					scrollAware: true,
 				}),
 			);
 	}
@@ -356,6 +359,7 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 		newerVersion: snapshot.newerVersion,
 		embedded: true,
 		showNavigation: statePath !== undefined,
+		scrollAware: statePath !== undefined,
 	});
 	if (statePath !== undefined) {
 		try {
@@ -603,6 +607,7 @@ export async function startWatcher(): Promise<void> {
 				width: process.stdout.columns ?? 80,
 				height: process.stdout.rows ?? 24,
 				newerVersion: snapshot.newerVersion,
+				scrollAware: true,
 			}),
 		);
 		view = selection.view;
