@@ -86,7 +86,7 @@ async function planDeletions(
 		const entries = await directoryEntries(config.allScopesLog);
 		for (const entry of entries) {
 			const path = join(config.allScopesLog, entry.name);
-			if (entry.isFile() && entry.name.endsWith(".html")) {
+			if (entry.isFile() && /^\d{4}-\d{2}\.html$/u.test(entry.name)) {
 				files.push(path);
 				removalSet.add(path);
 			}

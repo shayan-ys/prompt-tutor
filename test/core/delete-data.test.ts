@@ -41,6 +41,7 @@ test("dry-runs and removes only known configured data paths", async () => {
 		const unknownPaths = [
 			join(workStore, "keep.txt"),
 			join(allScopesLog, "keep.txt"),
+			join(allScopesLog, "keep.html"),
 		];
 		for (const path of unknownPaths) await writeFile(path, "keep this");
 
