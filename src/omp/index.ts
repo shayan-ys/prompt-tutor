@@ -26,16 +26,29 @@ import type {
 
 const STATUS_KEY = "prompt-tutor";
 const PACKAGE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-/** omp role that grades Reviews and writes Digests (ADR 0008). */
-const GRADER_ROLE = "@task";
+type Effort = NonNullable<Parameters<typeof completeSimple>[2]>["reasoning"];
+
+interface GraderRole {
+	role: string;
+	// `Effort` is a const enum in pi-catalog; its members' runtime values are these strings.
+	reasoning: "medium" | "high";
+}
+
+/** Reviews: fast per-Prompt grading (ADR 0008). */
+const REVIEW_GRADER: GraderRole = { role: "@task", reasoning: "medium" };
+/** Weekly Digest: the stronger analysis (ADR 0008). */
+const DIGEST_GRADER: GraderRole = { role: "@advisor", reasoning: "high" };
 
 // omp maps canonical @oh-my-pi imports to its host-bundled packages at runtime.
-function makeGrader(ctx: ExtensionContext): Grader {
+function makeGrader(
+	ctx: ExtensionContext,
+	{ role, reasoning }: GraderRole,
+): Grader {
 	return {
 		async call(request: GraderRequest): Promise<GraderResponse> {
-			const model = ctx.models.resolve(GRADER_ROLE);
+			const model = ctx.models.resolve(role);
 			if (!model)
-				throw new Error(`No available model is configured for ${GRADER_ROLE}.`);
+				throw new Error(`No available model is configured for ${role}.`);
 
 			const tool: Tool = {
 				name: request.tool.name,
@@ -57,10 +70,7 @@ function makeGrader(ctx: ExtensionContext): Grader {
 						model,
 						ctx.sessionManager.getSessionId(),
 					),
-					// `Effort` is a const enum in pi-catalog; its Medium member's runtime value is "medium".
-					reasoning: "medium" as NonNullable<
-						Parameters<typeof completeSimple>[2]
-					>["reasoning"],
+					reasoning: reasoning as Effort,
 					toolChoice: { type: "tool", name: request.tool.name },
 				},
 			);
@@ -75,7 +85,7 @@ function makeGrader(ctx: ExtensionContext): Grader {
 			return {
 				...(toolCall ? { toolArgs: toolCall.arguments } : { text }),
 				model: `${model.provider}/${model.id}`,
-				requestedReasoning: "medium",
+				requestedReasoning: reasoning,
 			};
 		},
 	};
@@ -194,7 +204,7 @@ export default function promptTutor(pi: ExtensionAPI): void {
 					cwd: ctx.cwd,
 					now,
 				});
-				const grader = makeGrader(ctx);
+				const grader = makeGrader(ctx, DIGEST_GRADER);
 				await Promise.all(
 					scopes.map(async (scope) => {
 						try {
@@ -260,7 +270,7 @@ export default function promptTutor(pi: ExtensionAPI): void {
 					ctx.ui.setStatus(STATUS_KEY, chipText(result.record));
 				const outcome: Outcome =
 					result.record.state === "pending"
-						? await review(result, makeGrader(ctx))
+						? await review(result, makeGrader(ctx, REVIEW_GRADER))
 						: { record: result.record };
 				if (sequence === latestPrompt)
 					ctx.ui.setStatus(STATUS_KEY, chipText(outcome.record));

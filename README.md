@@ -63,7 +63,7 @@ With no config file, prompt-tutor uses one `default` Scope. Each Scope stores it
 
 1. **Provider exposure per Prompt:** each Prompt is sent to the `@task` model configured for the omp session's active profile. That model may use a different provider from the session's main model. Scope selection does not change which provider receives the Prompt; only that profile's `@task` setting does.
 2. **Storage Scope:** the profile and cwd rules decide only where the Prompt and Review are stored.
-3. **Digest routing:** a Scope's Digest runs only in sessions of its `digest_profile` (by default, its sole profile condition; otherwise any session resolving to that Scope). Findings from a week are therefore sent to that session profile's `@task` model. This limits which profile runs the Digest, not which providers its data might reach.
+3. **Digest routing:** a Scope's Digest runs only in sessions of its `digest_profile` (by default, its sole profile condition; otherwise any session resolving to that Scope). That week's Findings, each with the sentence it came from, are sent to that session profile's `@advisor` model. This limits which profile runs the Digest, not which providers its data might reach.
 
 ## Upgrade
 
