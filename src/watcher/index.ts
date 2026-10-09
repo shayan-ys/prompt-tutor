@@ -125,15 +125,48 @@ function renderSnapshot(
 	});
 }
 
-/** Render the current configured view once, without opening a TTY or writing to the store. */
-export async function renderOnce(width = 80, height = 24): Promise<string> {
+export type OnceResult =
+	| { ok: true; frame: string }
+	| { ok: false; error: string };
+
+/**
+ * Render the all view once for a host such as devdash, without opening a TTY or writing to the store.
+ * A config or read failure is returned as a one-line error so the host can keep its last good frame.
+ */
+export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 	let snapshot: WatcherSnapshot;
 	try {
 		snapshot = await loadWatcherSnapshot();
 	} catch (error) {
 		snapshot = { kind: "read_error", error: failureMessage(error) };
 	}
-	return renderSnapshot(snapshot, "all", null, width, height, Date.now());
+	const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+	if (snapshot.kind === "config_error")
+		return {
+			ok: false,
+			error: oneLine(
+				`configuration error in ${snapshot.path}: ${snapshot.error}`,
+			),
+		};
+	if (snapshot.kind === "read_error")
+		return {
+			ok: false,
+			error: oneLine(`could not read the prompt store: ${snapshot.error}`),
+		};
+	return {
+		ok: true,
+		frame: renderFrame({
+			config: snapshot.config,
+			records: snapshot.records,
+			view: "all",
+			selectedId: null,
+			width,
+			height,
+			now: Date.now(),
+			newerVersion: snapshot.newerVersion,
+			embedded: true,
+		}),
+	};
 }
 
 function visibleRecords(

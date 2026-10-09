@@ -85,7 +85,13 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 		// Piped output has no terminal size; a host such as devdash passes its room in COLUMNS and LINES.
 		const width = process.stdout.columns ?? sizeFromEnv("COLUMNS") ?? 80;
 		const height = process.stdout.rows ?? sizeFromEnv("LINES") ?? 24;
-		process.stdout.write(`${await renderOnce(width, height)}\n`);
+		const result = await renderOnce(width, height);
+		if (result.ok) {
+			process.stdout.write(`${result.frame}\n`);
+		} else {
+			console.error(`prompt-tutor: ${result.error}`);
+			process.exitCode = 1;
+		}
 		return;
 	}
 	try {

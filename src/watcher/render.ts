@@ -45,6 +45,8 @@ export interface RenderFrameOptions {
 	height?: number;
 	now?: number;
 	newerVersion?: number;
+	/** One frame for a host such as devdash: no title line, view tabs, follow indicator, or key row. */
+	embedded?: boolean;
 }
 
 function safeText(text: string): string {
@@ -431,8 +433,8 @@ export function renderErrorFrame(
 	return fitFrame(lines, height);
 }
 
-function fitFrame(lines: string[], height: number): string {
-	const available = Math.max(1, height - 2);
+function fitFrame(lines: string[], height: number, keyRow = true): string {
+	const available = Math.max(1, keyRow ? height - 2 : height);
 	const shown =
 		lines.length > available
 			? [
@@ -440,6 +442,7 @@ function fitFrame(lines: string[], height: number): string {
 					`${DIM}  … ${lines.length - available + 1} more lines${RESET}`,
 				]
 			: lines;
+	if (!keyRow) return shown.join("\n");
 	return [...shown, "", `${DIM}  j/k prompts  s scope  q quit${RESET}`].join(
 		"\n",
 	);
@@ -485,14 +488,16 @@ export function renderFrame(options: RenderFrameOptions): string {
 		width - visibleLength(renderSegment(indicator)),
 	);
 	const titleLines = wrap(title, titleRoom, " ");
-	const lines = [
-		padRight(
-			titleLines[0] ?? "",
-			width - visibleLength(renderSegment(indicator)),
-		) + renderSegment(indicator),
-		...titleLines.slice(1),
-		"",
-	];
+	const lines = options.embedded
+		? []
+		: [
+				padRight(
+					titleLines[0] ?? "",
+					width - visibleLength(renderSegment(indicator)),
+				) + renderSegment(indicator),
+				...titleLines.slice(1),
+				"",
+			];
 
 	if (options.newerVersion && options.newerVersion > 0) {
 		lines.push(
@@ -516,7 +521,7 @@ export function renderFrame(options: RenderFrameOptions): string {
 				"  ",
 			),
 		);
-		return fitFrame(lines, height);
+		return fitFrame(lines, height, !options.embedded);
 	}
 
 	const head: Segment[] = [
@@ -553,5 +558,5 @@ export function renderFrame(options: RenderFrameOptions): string {
 		);
 		for (const record of older) lines.push(trailLine(record, width, now));
 	}
-	return fitFrame(lines, height);
+	return fitFrame(lines, height, !options.embedded);
 }

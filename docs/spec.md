@@ -63,13 +63,23 @@ Sources: [Ticket #3 — omp extension API: grader call, structured output, statu
 
 Sources: [Ticket #7 — Watcher terminal layout](https://github.com/shayan-ys/prompt-tutor/issues/7), [Ticket #10 — Install method and Watcher on PATH across profiles](https://github.com/shayan-ys/prompt-tutor/issues/10), [ADR 0006 — Review log rebuilt from Prompt files, not appended](./adr/0006-review-log-rebuilt-not-appended.md), [README — Usage](../README.md#usage).
 
-- `prompt-tutor` with no arguments MUST run a read-only terminal Watcher. The Watcher reads records and logs; it MUST NOT write them. It MUST support a one-frame `--once` mode and `--help`.
+- `prompt-tutor` with no arguments MUST run a read-only terminal Watcher. The Watcher reads records and logs; it MUST NOT write them. It MUST support a one-frame `--once` mode (see "Watcher in a dashboard") and `--help`.
 - Implement layout D, “Focus + trail.” The top line shows `all` and Scope views plus `● following latest` or `◀ N newer`. The selected Prompt header shows Scope, capture time, per-category counts, and an OSC 8 `log ↗` link to the stub for the current view.
 - Show the Rewrite as a word diff (deletions red with strikethrough; additions green and bold), then the Tip with a yellow bar. Do not repeat the selected Prompt or show a Findings list or `why` in the main body. The full Review is in the Review log.
 - Below a dimmed `earlier` rule, show the last three Prompts in the current view, newest first, with time, Scope letter, status, and clipped Prompt. Status is one colored `S`, `G`, or `F` per Finding, `✓ clean`, a pending spinner, `EN ?`, or `– skipped`.
 - Use 256-color SGR: spelling pink (213), grammar orange (214), fluency cyan (81); deletions red (203), insertions green (114), and italic Tip. Diffing SHOULD anchor Finding spans before diffing surrounding words so nearby Rewrite changes do not strike out whole phrases.
 - The selected states are clean (`✓` and Prompt), pending (spinner, `reviewing… Ns`, dimmed Prompt), failed (`EN ?`, short reason, dimmed Prompt), and skipped (grey reason and clipped Prompt).
 - The Watcher follows the newest Prompt in its view. `j` and `k` move older/newer; `s` cycles all → each Scope → following latest. Scope views link to that Scope's stub; all view links to the all-Scopes stub.
+
+## Watcher in a dashboard
+
+Sources: [Ticket #17 — devdash section: what prompt-tutor shows in devdash](https://github.com/shayan-ys/prompt-tutor/issues/17), [devdash issue #5 — Custom integrations](https://github.com/shayan-ys/devdash/issues/5), [devdash README — Example: prompt-tutor](https://github.com/shayan-ys/devdash#example-prompt-tutor).
+
+- `prompt-tutor --once` is the interface for hosts that embed the Watcher, such as a devdash integration. It is a stable contract: changing it is a breaking change.
+- `--once` MUST render the all view, following the newest Prompt, as layout D without the Watcher-only parts: no title line, view tabs, `● following latest` / `◀ N newer` indicator, or key row. The newer-version warning, header, body, and trail stay.
+- `--once` MUST only read: no store or log writes, and no reads from stdin. It sizes the frame from the terminal, or from `COLUMNS` and `LINES` when stdout is not a terminal, and MUST NOT exceed either. It MUST emit only SGR colours and OSC 8 hyperlinks as escape sequences.
+- An empty store is not an error: print the empty frame (`No Prompts yet.`) and exit 0. A config or store read failure MUST print nothing to stdout, write one line to stderr, and exit 1, so the host shows its own failure state over its last good frame.
+- Setup instructions for devdash live in devdash's README; prompt-tutor's README links to them. Taking Watcher keys inside a host is open: see "Open items".
 
 ## Review log
 
@@ -139,8 +149,8 @@ Sources: [Ticket #9 — OSS setup: license, CI, release process, README, contrib
 
 ## Open items
 
-Sources: [Ticket #9 — OSS setup: license, CI, release process, README, contributor docs](https://github.com/shayan-ys/prompt-tutor/issues/9), [devdash issue #5 — prompt-tutor integration contract](https://github.com/shayan-ys/devdash/issues/5), [ADR 0007 — A Scope's Digest runs only in its `digest_profile`](./adr/0007-digest-runs-in-scope-profile.md).
+Sources: [Ticket #9 — OSS setup: license, CI, release process, README, contributor docs](https://github.com/shayan-ys/prompt-tutor/issues/9), [Ticket #19 — Watcher keys inside devdash](https://github.com/shayan-ys/prompt-tutor/issues/19), [ADR 0007 — A Scope's Digest runs only in its `digest_profile`](./adr/0007-digest-runs-in-scope-profile.md).
 
-- The optional devdash section is undecided and blocked on devdash's integration contract in [devdash #5](https://github.com/shayan-ys/devdash/issues/5). Do not specify an integration before that contract settles.
+- `j`/`k` and `s` do not work inside devdash. Ticket #19 decides how prompt-tutor takes them, once devdash lets integrations bind keys in [devdash #7](https://github.com/shayan-ys/devdash/issues/7). Until then, the `--once` contract above holds.
 - Ticket #9 leaves unverified whether a fork PR's head SHA can be installed through the base repository's GitHub spec; verify that when CI is built and use the fork's own spec if required.
 - All-Scopes Digests remain out of scope for the separation reason above; the all-Scopes Review log is the cross-Scope view.

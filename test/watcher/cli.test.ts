@@ -70,6 +70,8 @@ describe("prompt-tutor --once", () => {
 			expect(frame).toContain("grammar 1");
 			expect(frame).toContain("The build");
 			expect(frame).toContain("Match the verb to its subject.");
+			expect(frame).not.toContain("following latest");
+			expect(frame).not.toContain("j/k");
 			expect(frame).toContain("log ↗");
 			expect(output.stdout).toContain("\x1b]8;;file:");
 			const narrow = spawnSync(process.execPath, [binPath, "--once"], {
@@ -87,6 +89,30 @@ describe("prompt-tutor --once", () => {
 			for (const row of rows) expect(row.length).toBeLessThanOrEqual(40);
 			expect(await readFile(promptPath, "utf8")).toBe(promptText);
 			expect(await Bun.file(join(store, "log")).exists()).toBe(false);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("reports a broken config on stderr with a nonzero exit, not as a frame", async () => {
+		const root = await mkdtemp(join(tmpdir(), "prompt-tutor-watcher-"));
+		const configDir = join(root, "config", "prompt-tutor");
+		const binPath = join(import.meta.dir, "../../bin/prompt-tutor");
+		try {
+			await mkdir(configDir, { recursive: true });
+			await writeFile(join(configDir, "config.yml"), "scopes: [\n");
+			const output = spawnSync(process.execPath, [binPath, "--once"], {
+				env: {
+					...process.env,
+					XDG_CONFIG_HOME: join(root, "config"),
+					XDG_DATA_HOME: join(root, "data"),
+				},
+				encoding: "utf8",
+			});
+			expect(output.status).toBe(1);
+			expect(output.stdout).toBe("");
+			expect(output.stderr.trimEnd().split("\n")).toHaveLength(1);
+			expect(output.stderr).toContain("configuration error");
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

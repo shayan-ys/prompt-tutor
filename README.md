@@ -45,6 +45,8 @@ prompt-tutor
 
 The Watcher reads local records and Review logs; it does not write them. The first interactive omp session after Friday noon may build a stale weekly Digest in the background.
 
+To show the latest Review in a dashboard, `prompt-tutor --once` prints one frame and exits. It fits the `COLUMNS` and `LINES` it is given and leaves out the Watcher's keys. For [devdash](https://github.com/shayan-ys/devdash), follow its [prompt-tutor example](https://github.com/shayan-ys/devdash#example-prompt-tutor).
+
 ## Configuration
 
 Configuration is YAML at `$XDG_CONFIG_HOME/prompt-tutor/config.yml` (normally `~/.config/prompt-tutor/config.yml`). The first matching Scope wins; conditions in one `when` entry are ANDed, and entries are ORed. This routes the `personal` profile or work under `~/Documents/personal/` to the personal store, with everything else in work:
