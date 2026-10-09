@@ -48,62 +48,117 @@ describe("Watcher navigation", () => {
 	test("newer returns the top and immediately-older selections to following latest", () => {
 		expect(
 			applyWatcherAction(
-				{ view: "all", selectedId: "newest" },
+				{ view: "all", selectedId: "newest", scroll: 3 },
 				"newer",
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: null });
+		).toEqual({ view: "all", selectedId: null, scroll: 0 });
 		expect(
 			applyWatcherAction(
-				{ view: "all", selectedId: "middle" },
+				{ view: "all", selectedId: "middle", scroll: 3 },
 				"newer",
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: null });
+		).toEqual({ view: "all", selectedId: null, scroll: 0 });
 	});
 
 	test("older at the end stays on the oldest Prompt", () => {
 		expect(
 			applyWatcherAction(
-				{ view: "all", selectedId: "oldest" },
+				{ view: "all", selectedId: "oldest", scroll: 2 },
 				"older",
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: "oldest" });
+		).toEqual({ view: "all", selectedId: "oldest", scroll: 2 });
+	});
+
+	test("scroll actions move one line and clamp at both ends", () => {
+		const selection = { view: "all", selectedId: "middle", scroll: 1 };
+		expect(
+			applyWatcherAction(selection, "scroll-down", scopes, records, 2),
+		).toEqual({ ...selection, scroll: 2 });
+		expect(
+			applyWatcherAction(
+				{ ...selection, scroll: 2 },
+				"scroll-down",
+				scopes,
+				records,
+				2,
+			),
+		).toEqual({ ...selection, scroll: 2 });
+		expect(
+			applyWatcherAction(selection, "scroll-up", scopes, records, 2),
+		).toEqual({ ...selection, scroll: 0 });
+		expect(
+			applyWatcherAction(
+				{ ...selection, scroll: 0 },
+				"scroll-up",
+				scopes,
+				records,
+				2,
+			),
+		).toEqual({ ...selection, scroll: 0 });
+	});
+
+	test("selection and view changes reset scrolling", () => {
+		expect(
+			applyWatcherAction(
+				{ view: "all", selectedId: "middle", scroll: 2 },
+				"older",
+				scopes,
+				records,
+			),
+		).toEqual({ view: "all", selectedId: "oldest", scroll: 0 });
+		expect(
+			applyWatcherAction(
+				{ view: "all", selectedId: "middle", scroll: 2 },
+				"scope",
+				scopes,
+				records,
+			),
+		).toEqual({ view: "work", selectedId: null, scroll: 0 });
 	});
 
 	test("scope cycles through configured views and resets selection", () => {
-		let selection = { view: "all", selectedId: "oldest" as string | null };
+		let selection = {
+			view: "all",
+			selectedId: "oldest" as string | null,
+			scroll: 3,
+		};
 		selection = applyWatcherAction(selection, "scope", scopes, records);
-		expect(selection).toEqual({ view: "work", selectedId: null });
+		expect(selection).toEqual({ view: "work", selectedId: null, scroll: 0 });
 		selection = applyWatcherAction(
-			{ view: selection.view, selectedId: "newest" },
+			{ view: selection.view, selectedId: "newest", scroll: 2 },
 			"scope",
 			scopes,
 			records,
 		);
-		expect(selection).toEqual({ view: "personal", selectedId: null });
+		expect(selection).toEqual({
+			view: "personal",
+			selectedId: null,
+			scroll: 0,
+		});
 		selection = applyWatcherAction(selection, "scope", scopes, records);
-		expect(selection).toEqual({ view: "all", selectedId: null });
+		expect(selection).toEqual({ view: "all", selectedId: null, scroll: 0 });
 	});
 
-	test("a selection that leaves its view follows the latest Prompt", () => {
+	test("a selection that leaves its view follows latest and resets scrolling", () => {
 		expect(
 			reconcileWatcherSelection(
-				{ view: "work", selectedId: "middle" },
+				{ view: "work", selectedId: "middle", scroll: 2 },
 				scopes,
 				records,
 			),
-		).toEqual({ view: "work", selectedId: null });
+		).toEqual({ view: "work", selectedId: null, scroll: 0 });
 		expect(
 			reconcileWatcherSelection(
-				{ view: "retired", selectedId: "oldest" },
+				{ view: "retired", selectedId: "oldest", scroll: 2 },
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: "oldest" });
+		).toEqual({ view: "all", selectedId: "oldest", scroll: 0 });
 	});
 });

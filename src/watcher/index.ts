@@ -23,7 +23,7 @@ import {
 	type WatcherAction,
 	type WatcherSelection,
 } from "./navigation.ts";
-import { renderErrorFrame, renderFrame } from "./render.ts";
+import { bodyScrollRange, renderErrorFrame, renderFrame } from "./render.ts";
 
 const RECENT_LIMIT = 100;
 const POLL_INTERVAL_MS = 2_000;
@@ -114,6 +114,7 @@ function renderSnapshot(
 	snapshot: WatcherSnapshot,
 	view: WatcherView,
 	selectedId: string | null,
+	scroll: number,
 	width: number,
 	height: number,
 	now: number,
@@ -132,6 +133,7 @@ function renderSnapshot(
 		records: snapshot.records,
 		view,
 		selectedId,
+		scroll,
 		width,
 		height,
 		now,
@@ -144,7 +146,7 @@ export type OnceResult =
 	| { ok: false; error: string };
 
 function defaultSelection(): WatcherSelection {
-	return { view: "all", selectedId: null };
+	return { view: "all", selectedId: null, scroll: 0 };
 }
 
 function parseDashboardState(
@@ -159,6 +161,8 @@ function parseDashboardState(
 			version?: unknown;
 			view?: unknown;
 			selected?: unknown;
+			scroll?: unknown;
+			latest?: unknown;
 		};
 		if (
 			state.version !== 1 ||
@@ -166,11 +170,32 @@ function parseDashboardState(
 			(state.selected !== null && typeof state.selected !== "string")
 		)
 			return defaultSelection();
-		return reconcileWatcherSelection(
-			{ view: state.view, selectedId: state.selected },
+		const selection = reconcileWatcherSelection(
+			{
+				view: state.view,
+				selectedId: state.selected,
+				scroll:
+					typeof state.scroll === "number" &&
+					Number.isSafeInteger(state.scroll) &&
+					state.scroll >= 0
+						? state.scroll
+						: 0,
+			},
 			snapshot.config.scopes,
 			snapshot.records,
 		);
+		const latest =
+			selection.view === "all"
+				? snapshot.records[0]?.id
+				: snapshot.records.find((record) => record.scope === selection.view)
+						?.id;
+		return {
+			...selection,
+			scroll:
+				selection.selectedId === null && state.latest !== latest
+					? 0
+					: selection.scroll,
+		};
 	} catch {
 		return defaultSelection();
 	}
@@ -192,6 +217,7 @@ async function readDashboardState(
 async function writeDashboardState(
 	path: string,
 	selection: WatcherSelection,
+	latest: string | undefined,
 ): Promise<void> {
 	const temporary = join(
 		dirname(path),
@@ -207,6 +233,8 @@ async function writeDashboardState(
 					version: 1,
 					view: selection.view,
 					selected: selection.selectedId,
+					scroll: selection.scroll,
+					...(selection.scroll > 0 ? { latest } : {}),
 				})}\n`,
 				"utf8",
 			);
@@ -264,6 +292,20 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 		}
 	}
 
+	if (statePath !== undefined)
+		selection.scroll = Math.min(
+			selection.scroll,
+			bodyScrollRange({
+				config: snapshot.config,
+				records: snapshot.records,
+				view: selection.view,
+				selectedId: selection.selectedId,
+				width,
+				height,
+				embedded: true,
+				showNavigation: true,
+			}),
+		);
 	if (statePath !== undefined) {
 		const actionValue = process.env.DEVDASH_ACTION;
 		let action: WatcherAction | undefined;
@@ -271,7 +313,9 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 			if (
 				actionValue !== "newer" &&
 				actionValue !== "older" &&
-				actionValue !== "scope"
+				actionValue !== "scope" &&
+				actionValue !== "scroll-down" &&
+				actionValue !== "scroll-up"
 			)
 				return {
 					ok: false,
@@ -285,6 +329,16 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 				action,
 				snapshot.config.scopes,
 				snapshot.records,
+				bodyScrollRange({
+					config: snapshot.config,
+					records: snapshot.records,
+					view: selection.view,
+					selectedId: selection.selectedId,
+					width,
+					height,
+					embedded: true,
+					showNavigation: true,
+				}),
 			);
 	}
 
@@ -293,6 +347,7 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 		records: snapshot.records,
 		view: selection.view,
 		selectedId: selection.selectedId,
+		scroll: selection.scroll,
 		width,
 		height,
 		now: Date.now(),
@@ -302,7 +357,12 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 	});
 	if (statePath !== undefined) {
 		try {
-			await writeDashboardState(statePath, selection);
+			const latest =
+				selection.view === "all"
+					? snapshot.records[0]?.id
+					: snapshot.records.find((record) => record.scope === selection.view)
+							?.id;
+			await writeDashboardState(statePath, selection, latest);
 		} catch (error) {
 			return {
 				ok: false,
@@ -380,6 +440,7 @@ export async function startWatcher(): Promise<void> {
 	};
 	let view: WatcherView = "all";
 	let selectedId: string | null = null;
+	let scroll = 0;
 	let currentConfigKey = "";
 	let currentDirectorySignature = "";
 	let isRefreshing = false;
@@ -393,7 +454,7 @@ export async function startWatcher(): Promise<void> {
 		const columns = process.stdout.columns ?? 80;
 		const rows = process.stdout.rows ?? 24;
 		process.stdout.write(
-			`\x1b[H\x1b[2J${renderSnapshot(snapshot, view, selectedId, columns, rows, Date.now())}`,
+			`\x1b[H\x1b[2J${renderSnapshot(snapshot, view, selectedId, scroll, columns, rows, Date.now())}`,
 		);
 	};
 
@@ -426,6 +487,10 @@ export async function startWatcher(): Promise<void> {
 		try {
 			do {
 				refreshAgain = false;
+				const previousLatest =
+					snapshot.kind === "ready"
+						? visibleRecords(snapshot, view)[0]?.id
+						: undefined;
 				try {
 					snapshot = await loadWatcherSnapshot();
 				} catch (error) {
@@ -447,10 +512,16 @@ export async function startWatcher(): Promise<void> {
 				}
 				if (snapshot.kind === "ready") {
 					const selection = reconcileWatcherSelection(
-						{ view, selectedId },
+						{ view, selectedId, scroll },
 						snapshot.config.scopes,
 						snapshot.records,
 					);
+					scroll = selection.scroll;
+					if (
+						selectedId === null &&
+						previousLatest !== visibleRecords(snapshot, selection.view)[0]?.id
+					)
+						scroll = 0;
 					view = selection.view;
 					selectedId = selection.selectedId;
 				}
@@ -514,15 +585,26 @@ export async function startWatcher(): Promise<void> {
 		if (key === "s") action = "scope";
 		else if (key === "k" || key === "\x1b[B") action = "older";
 		else if (key === "j" || key === "\x1b[A") action = "newer";
+		else if (key === "J") action = "scroll-down";
+		else if (key === "K") action = "scroll-up";
 		else return;
 		const selection = applyWatcherAction(
-			{ view, selectedId },
+			{ view, selectedId, scroll },
 			action,
 			snapshot.config.scopes,
 			snapshot.records,
+			bodyScrollRange({
+				config: snapshot.config,
+				records: snapshot.records,
+				view,
+				selectedId,
+				width: process.stdout.columns ?? 80,
+				height: process.stdout.rows ?? 24,
+			}),
 		);
 		view = selection.view;
 		selectedId = selection.selectedId;
+		scroll = selection.scroll;
 		draw();
 	};
 	const onResize = () => draw();

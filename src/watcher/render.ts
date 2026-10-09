@@ -41,6 +41,7 @@ export interface RenderFrameOptions {
 	view: string;
 	/** `null` follows the newest Prompt in `view`; otherwise the selected Prompt id. */
 	selectedId: string | null;
+	scroll?: number;
 	width?: number;
 	height?: number;
 	now?: number;
@@ -434,6 +435,35 @@ export function renderErrorFrame(
 	];
 	return fitFrame(lines, height);
 }
+/** Return the maximum body offset renderFrame can display for this selection and frame size. */
+export function bodyScrollRange(options: RenderFrameOptions): number {
+	const width = Math.max(20, Math.min((options.width ?? 80) - 2, 100));
+	const height = options.height ?? 24;
+	const sortedRecords = sortNewestFirst(options.records);
+	const inView =
+		options.view === "all"
+			? sortedRecords
+			: sortedRecords.filter((record) => record.scope === options.view);
+	const selectedIndex =
+		options.selectedId === null
+			? 0
+			: Math.max(
+					0,
+					inView.findIndex((record) => record.id === options.selectedId),
+				);
+	const selected = inView[selectedIndex];
+	if (!selected) return 0;
+	const body = stateBody(selected, width, options.now ?? Date.now());
+	const older = inView.slice(selectedIndex + 1, selectedIndex + 4);
+	const showNavigation = options.showNavigation ?? !options.embedded;
+	const leadingLines = showNavigation ? 2 : 0;
+	const trailingLines = older.length ? 3 + older.length : 0;
+	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
+	const bodyRoom = Math.max(1, frameCapacity - leadingLines - trailingLines);
+	return body.length > bodyRoom
+		? Math.max(0, body.length - Math.max(1, bodyRoom - 2))
+		: 0;
+}
 
 function fitFrame(lines: string[], height: number, keyRow = true): string {
 	const available = Math.max(1, keyRow ? height - 2 : height);
@@ -445,9 +475,11 @@ function fitFrame(lines: string[], height: number, keyRow = true): string {
 				]
 			: lines;
 	if (!keyRow) return shown.join("\n");
-	return [...shown, "", `${DIM}  j/k prompts  s scope  q quit${RESET}`].join(
-		"\n",
-	);
+	return [
+		...shown,
+		"",
+		`${DIM}  j/k prompts  J/K scroll  s scope  q quit${RESET}`,
+	].join("\n");
 }
 
 /** Render a complete, side-effect-free Watcher frame. */
@@ -551,8 +583,24 @@ export function renderFrame(options: RenderFrameOptions): string {
 	);
 
 	const body = stateBody(selected, width, now);
-	lines.push(...body);
 	const older = inView.slice(selectedIndex + 1, selectedIndex + 4);
+	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
+	const trailingLines = older.length ? 3 + older.length : 0;
+	const bodyRoom = Math.max(1, frameCapacity - lines.length - trailingLines);
+	let scroll = Math.max(0, Math.floor(options.scroll ?? 0));
+	if (body.length > bodyRoom) {
+		const baseRoom = Math.max(1, bodyRoom - 2);
+		scroll = Math.min(scroll, body.length - baseRoom);
+		const above = scroll > 0;
+		const visibleCount = Math.max(1, bodyRoom - (above ? 1 : 0) - 1);
+		const visible = body.slice(scroll, scroll + visibleCount);
+		if (above) lines.push(`${DIM}  … ${scroll} lines above${RESET}`);
+		lines.push(...visible);
+		const below = body.length - scroll - visible.length;
+		if (below > 0) lines.push(`${DIM}  … ${below} more lines${RESET}`);
+	} else {
+		lines.push(...body);
+	}
 	if (older.length) {
 		lines.push(
 			"",

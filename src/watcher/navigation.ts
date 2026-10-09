@@ -1,10 +1,16 @@
 import type { PromptRecord, Scope } from "../core/types.ts";
 
-export type WatcherAction = "newer" | "older" | "scope";
+export type WatcherAction =
+	| "newer"
+	| "older"
+	| "scope"
+	| "scroll-down"
+	| "scroll-up";
 
 export interface WatcherSelection {
 	view: string;
 	selectedId: string | null;
+	scroll: number;
 }
 
 /** Keep a selection valid when the configured views or visible Prompts change. */
@@ -17,15 +23,22 @@ export function reconcileWatcherSelection(
 		selection.view === "all" ||
 		scopes.some((scope) => scope.name === selection.view);
 	const view = viewExists ? selection.view : "all";
-	if (selection.selectedId === null) return { view, selectedId: null };
-	const selectedStillVisible = records.some(
-		(record) =>
-			record.id === selection.selectedId &&
-			(view === "all" || record.scope === view),
-	);
+	let selectedId = selection.selectedId;
+	if (
+		selectedId !== null &&
+		!records.some(
+			(record) =>
+				record.id === selectedId && (view === "all" || record.scope === view),
+		)
+	)
+		selectedId = null;
 	return {
 		view,
-		selectedId: selectedStillVisible ? selection.selectedId : null,
+		selectedId,
+		scroll:
+			view === selection.view && selectedId === selection.selectedId
+				? selection.scroll
+				: 0,
 	};
 }
 
@@ -35,6 +48,7 @@ export function applyWatcherAction(
 	action: WatcherAction,
 	scopes: Scope[],
 	records: PromptRecord[],
+	maxScroll = Number.MAX_SAFE_INTEGER,
 ): WatcherSelection {
 	const current = reconcileWatcherSelection(selection, scopes, records);
 	if (action === "scope") {
@@ -44,8 +58,13 @@ export function applyWatcherAction(
 			view:
 				scopeIndex >= scopes.length - 1 ? "all" : (nextScope?.name ?? "all"),
 			selectedId: null,
+			scroll: 0,
 		};
 	}
+	if (action === "scroll-down")
+		return { ...current, scroll: Math.min(maxScroll, current.scroll + 1) };
+	if (action === "scroll-up")
+		return { ...current, scroll: Math.max(0, current.scroll - 1) };
 
 	const visible =
 		current.view === "all"
@@ -57,9 +76,13 @@ export function applyWatcherAction(
 			: visible.findIndex((record) => record.id === current.selectedId);
 	if (action === "older") {
 		const nextOlder = visible[selectedIndex + 1];
-		return nextOlder ? { ...current, selectedId: nextOlder.id } : current;
+		return nextOlder
+			? { ...current, selectedId: nextOlder.id, scroll: 0 }
+			: current;
 	}
-	if (selectedIndex <= 1) return { ...current, selectedId: null };
+	if (selectedIndex <= 1) return { ...current, selectedId: null, scroll: 0 };
 	const nextNewer = visible[selectedIndex - 1];
-	return nextNewer ? { ...current, selectedId: nextNewer.id } : current;
+	return nextNewer
+		? { ...current, selectedId: nextNewer.id, scroll: 0 }
+		: current;
 }

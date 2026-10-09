@@ -113,6 +113,7 @@ const stateDefaults: Array<[string, string | undefined]> = [
 	["empty", ""],
 	["invalid JSON", "not JSON"],
 	["unsupported version", '{"version":2,"view":"work","selected":null}'],
+	["invalid scroll", '{"version":1,"view":"all","selected":null,"scroll":-1}'],
 ];
 
 describe("prompt-tutor dashboard state", () => {
@@ -137,6 +138,7 @@ describe("prompt-tutor dashboard state", () => {
 					version: 1,
 					view: "all",
 					selected: null,
+					scroll: 0,
 				});
 				const info = await stat(statePath);
 				expect(info.mode & 0o777).toBe(0o600);
@@ -163,6 +165,7 @@ describe("prompt-tutor dashboard state", () => {
 				version: 1,
 				view: "all",
 				selected: "20261009T110000000-a1b2c3",
+				scroll: 0,
 			});
 
 			const second = runOnce(
@@ -178,6 +181,7 @@ describe("prompt-tutor dashboard state", () => {
 				version: 1,
 				view: "all",
 				selected: "20261009T100000000-a1b2c3",
+				scroll: 0,
 			});
 			expect(await readdir(fixture.root)).toContain("state.json");
 			expect(
@@ -208,6 +212,7 @@ describe("prompt-tutor dashboard state", () => {
 				version: 1,
 				view: "all",
 				selected: "20261009T110000000-a1b2c3",
+				scroll: 0,
 			});
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
@@ -231,6 +236,7 @@ describe("prompt-tutor dashboard state", () => {
 				version: 1,
 				view: "all",
 				selected: "20261009T110000000-a1b2c3",
+				scroll: 0,
 			});
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
@@ -257,8 +263,63 @@ describe("prompt-tutor dashboard state", () => {
 					version: 1,
 					view,
 					selected: null,
+					scroll: 0,
 				});
 			}
+		} finally {
+			await rm(fixture.root, { recursive: true, force: true });
+		}
+	});
+	test("scroll actions round-trip the body offset through dashboard state", async () => {
+		const fixture = await makeFixture();
+		const statePath = join(fixture.root, "state.json");
+		try {
+			const latestPath = join(
+				fixture.dataHome,
+				"prompt-tutor",
+				"work",
+				"prompts",
+				"2026-10",
+				"20261009T120000000-a1b2c3.json",
+			);
+			const latest = JSON.parse(await readFile(latestPath, "utf8"));
+			latest.text = "Long body line. ".repeat(100);
+			await writeFile(latestPath, JSON.stringify(latest));
+			await writeFile(
+				statePath,
+				'{"version":1,"view":"all","selected":null,"scroll":0}\n',
+			);
+
+			const down = runOnce(
+				childEnvironment(fixture, {
+					DEVDASH_STATE_FILE: statePath,
+					DEVDASH_ACTION: "scroll-down",
+				}),
+			);
+			expect(down.status).toBe(0);
+			expect(plain(down.stdout)).toContain("lines above");
+			expect(plain(down.stdout)).toContain("more lines");
+			expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
+				version: 1,
+				view: "all",
+				selected: null,
+				scroll: 1,
+			});
+
+			const up = runOnce(
+				childEnvironment(fixture, {
+					DEVDASH_STATE_FILE: statePath,
+					DEVDASH_ACTION: "scroll-up",
+				}),
+			);
+			expect(up.status).toBe(0);
+			expect(plain(up.stdout)).not.toContain("lines above");
+			expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
+				version: 1,
+				view: "all",
+				selected: null,
+				scroll: 0,
+			});
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
 		}
