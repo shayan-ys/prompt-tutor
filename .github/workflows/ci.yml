@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install
+      - name: TypeScript, Biome, and tests
+        run: bun run check
+      - name: Install latest omp
+        run: |
+          brew tap can1357/tap
+          brew install can1357/tap/omp
+      - name: Smoke-test GitHub plugin installation and command registration
+        env:
+          HOME: ${{ runner.temp }}/prompt-tutor-omp-home
+          OMP_PROFILE: smoke
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIOUS_MAIN_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          export PATH="$HOME/.local/bin:$PATH"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            omp plugin install "github:shayan-ys/prompt-tutor#${PR_HEAD_SHA}"
+            omp --print "/prompt-tutor install-watcher"
+            test -L "$HOME/.local/bin/prompt-tutor"
+          else
+            omp plugin install github:shayan-ys/prompt-tutor
+            omp --print "/prompt-tutor install-watcher"
+            test -L "$HOME/.local/bin/prompt-tutor"
+            if [[ -n "$PREVIOUS_MAIN_SHA" && "$PREVIOUS_MAIN_SHA" != "0000000000000000000000000000000000000000" ]]; then
+              OMP_PROFILE=upgrade omp plugin install "github:shayan-ys/prompt-tutor#${PREVIOUS_MAIN_SHA}"
+              OMP_PROFILE=upgrade omp plugin upgrade prompt-tutor
+            fi
+          fi

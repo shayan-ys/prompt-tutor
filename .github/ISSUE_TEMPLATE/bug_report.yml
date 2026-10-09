@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem without sharing real Prompts.
+title: ""
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste real Prompts, session content, credentials, or API keys. Redact Prompt text from Watcher output.
+  - type: input
+    id: omp-version
+    attributes:
+      label: omp version
+      description: Output of `omp --version`.
+    validations:
+      required: true
+  - type: input
+    id: prompt-tutor-version
+    attributes:
+      label: prompt-tutor commit or version
+      description: Git commit, plugin version, or tag.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+    validations:
+      required: true
+  - type: textarea
+    id: watcher-output
+    attributes:
+      label: Redacted Watcher output
+      description: Remove Prompt text and any personal or sensitive information.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true

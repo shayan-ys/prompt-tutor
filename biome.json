@@ -1,0 +1,47 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
+	"formatter": {
+		"indentStyle": "tab"
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double",
+			"semicolons": "always"
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"suspicious": {
+				"noControlCharactersInRegex": "off"
+			}
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["src/core/**", "src/watcher/**", "src/cli.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["@oh-my-pi/*", "**/omp", "**/omp/**"],
+										"message": "The harness-independent core must not import the omp adapter or omp packages."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		}
+	],
+	"files": {
+		"ignoreUnknown": true,
+		"includes": ["src/**/*.ts", "test/**/*.ts", "bin/**/*.ts"]
+	}
+}
