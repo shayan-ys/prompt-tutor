@@ -64,11 +64,24 @@ export const REVIEW_TOOL = {
 	},
 } as const;
 
-export const GRADER_PROMPT_HASH = createHash("sha256")
-	.update(GRADER_PROMPT)
-	.update(JSON.stringify(REVIEW_TOOL.parameters))
-	.digest("hex")
-	.slice(0, 12);
+function hashPrompt(prompt: string): string {
+	return createHash("sha256")
+		.update(prompt)
+		.update(JSON.stringify(REVIEW_TOOL.parameters))
+		.digest("hex")
+		.slice(0, 12);
+}
+
+export function graderPromptForLanguage(language: string): string {
+	if (language.toLowerCase() === "english") return GRADER_PROMPT;
+	return `${GRADER_PROMPT}\n\nLANGUAGE. English remains the target language. Write each Finding's why and kind, and the Tip, in ${language}. Keep quote, fix, and Rewrite in English.`;
+}
+
+export const GRADER_PROMPT_HASH = hashPrompt(GRADER_PROMPT);
+
+export function graderPromptHashForLanguage(language: string): string {
+	return hashPrompt(graderPromptForLanguage(language));
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);

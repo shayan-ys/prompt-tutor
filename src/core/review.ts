@@ -1,6 +1,6 @@
 import {
-	GRADER_PROMPT,
-	GRADER_PROMPT_HASH,
+	graderPromptForLanguage,
+	graderPromptHashForLanguage,
 	REVIEW_TOOL,
 	validateReview,
 } from "./grader.ts";
@@ -20,6 +20,9 @@ export async function review(
 ): Promise<Outcome> {
 	let record = captured.record;
 	let changed = false;
+	const explanationLanguage = captured.config.explanationLanguage;
+	const systemPrompt = graderPromptForLanguage(explanationLanguage);
+	const promptHash = graderPromptHashForLanguage(explanationLanguage);
 	if (record.state === "pending") {
 		changed = true;
 		let attempts = 0;
@@ -31,8 +34,8 @@ export async function review(
 				attempts = attempt;
 				const system =
 					attempt === 1
-						? GRADER_PROMPT
-						: `${GRADER_PROMPT}\n\nYour previous response was invalid. Submit a corrected Review that fixes these problems: ${problems.join("; ")}`;
+						? systemPrompt
+						: `${systemPrompt}\n\nYour previous response was invalid. Submit a corrected Review that fixes these problems: ${problems.join("; ")}`;
 				const response = await grader.call({
 					system,
 					user: record.text,
@@ -60,7 +63,7 @@ export async function review(
 					const graderInfo: GraderInfo = {
 						model: response.model,
 						requested_reasoning: response.requestedReasoning,
-						prompt_hash: GRADER_PROMPT_HASH,
+						prompt_hash: promptHash,
 						attempts,
 					};
 					record = {
@@ -98,7 +101,7 @@ export async function review(
 				grader: {
 					model: lastResponse.model,
 					requested_reasoning: lastResponse.requestedReasoning,
-					prompt_hash: GRADER_PROMPT_HASH,
+					prompt_hash: promptHash,
 					attempts,
 				},
 			};

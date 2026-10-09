@@ -40,6 +40,10 @@ export const DIGEST_PROMPT = `You are an English tutor analysing stored language
 Group every supplied Finding id into exactly one Pattern. Every id must appear once: do not omit, duplicate, or invent ids. A Pattern describes one underlying language rule or error. The Findings' free-text kinds are hints, not stable labels: different kinds can describe the same Pattern, and one kind can cover different Patterns. Group by the language issue shown by the quote, fix, and containing sentence. Reuse a prior Pattern id exactly when the underlying issue is the same; otherwise invent a short, stable kebab-case id. Do not match by name alone.
 
 For each Pattern provide a concise name and a short, accurate rule. Write a brief lesson about the most important one or two Patterns, using corrected sentences drawn from the supplied Findings and ending with one thing to practise. If there are no Findings, say that no language errors were found and suggest a simple way to keep the prompts clear; do not invent errors. Write one concise paragraph for what to focus on next. Keep the lesson under 120 words and the focus paragraph under 60 words. Return the complete result using the required tool.`;
+export function digestPromptForLanguage(language: string): string {
+	if (language.toLowerCase() === "english") return DIGEST_PROMPT;
+	return `${DIGEST_PROMPT}\n\nLANGUAGE. English remains the target language. Write Pattern names and rules, the lesson, and the focus paragraph in ${language}. Keep quoted sentences and corrected example sentences in English.`;
+}
 
 export const DIGEST_TOOL: GraderTool = {
 	name: "submit_digest",
@@ -448,14 +452,16 @@ async function askForDigest(
 	grader: Grader,
 	findings: DigestFinding[],
 	history: DigestArchive[],
+	explanationLanguage: string,
 ): Promise<{ digest?: ValidDigest; error?: string }> {
 	const initialUser = modelInput(findings, history);
+	const systemPrompt = digestPromptForLanguage(explanationLanguage);
 	const expectedIds = new Set(findings.map(({ id }) => id));
 	let retryProblems = "";
 	let lastError = "The grader did not return valid Digest tool arguments.";
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const request: GraderRequest = {
-			system: DIGEST_PROMPT,
+			system: systemPrompt,
 			user:
 				attempt === 0
 					? initialUser
@@ -702,7 +708,7 @@ function emptyDigest(
 /** Generate the current weekly Digest behind an exclusive, expiring Scope lock. */
 export async function runDigest(
 	scope: Scope,
-	_config: Config,
+	config: Config,
 	grader: Grader,
 	now: Date,
 ): Promise<
@@ -745,6 +751,7 @@ export async function runDigest(
 			grader,
 			findings,
 			history.priorDigests,
+			config.explanationLanguage,
 		);
 		if (!modelResult.digest)
 			return {

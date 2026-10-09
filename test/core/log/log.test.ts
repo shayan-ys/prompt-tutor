@@ -32,7 +32,13 @@ function scope(name: string, index: number, store: string): Scope {
 }
 
 function config(scopes: Scope[], allScopesLog: string): Config {
-	return { scopes, allScopesLog, path: null };
+	return {
+		scopes,
+		allScopesLog,
+		keepMonths: null,
+		explanationLanguage: "English",
+		path: null,
+	};
 }
 
 function record(overrides: Partial<PromptRecord> = {}): PromptRecord {

@@ -12,3 +12,5 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Weekly per-Scope Digests, run only in sessions of each Scope's `digest_profile`.
 - Reviews graded by the omp `@task` role with medium reasoning; weekly Digests written by `@advisor` with high reasoning.
 - `/prompt-tutor install-watcher` to place the Watcher command on `PATH`.
+- Optional Review log retention by `keep_months` and explicit data removal with `prompt-tutor --delete-data [--yes]`.
+- Configurable explanation language for Findings, Tips, and Digest prose while keeping English as the target language.

@@ -13,6 +13,7 @@ import {
 	chipText,
 	dueDigests,
 	loadConfig,
+	pruneExpiredMonths,
 	review,
 	runDigest,
 } from "../core/index.ts";
@@ -199,40 +200,64 @@ export default function promptTutor(pi: ExtensionAPI): void {
 					);
 					return;
 				}
-				const scopes = await dueDigests({
-					profile: profile(),
-					cwd: ctx.cwd,
-					now,
-				});
-				const grader = makeGrader(ctx, DIGEST_GRADER);
-				await Promise.all(
-					scopes.map(async (scope) => {
+				const config = loaded.config;
+				await Promise.all([
+					(async () => {
 						try {
-							const digest = await runDigest(scope, loaded.config, grader, now);
-							if (digest.kind === "written")
-								notifySafely(
-									ctx,
-									`prompt-tutor Digest written: ${digest.htmlPath}`,
-								);
-							else if (digest.kind === "failed")
-								notifySafely(
-									ctx,
-									`prompt-tutor Digest failed: ${digest.error}`,
-									"error",
-								);
+							await pruneExpiredMonths(config, now);
 						} catch (error) {
 							notifySafely(
 								ctx,
-								`prompt-tutor Digest failed: ${String(error)}`,
+								`prompt-tutor retention prune failed: ${String(error)}`,
+								"warning",
+							);
+						}
+					})(),
+					(async () => {
+						try {
+							const scopes = await dueDigests({
+								profile: profile(),
+								cwd: ctx.cwd,
+								now,
+							});
+							const grader = makeGrader(ctx, DIGEST_GRADER);
+							await Promise.all(
+								scopes.map(async (scope) => {
+									try {
+										const digest = await runDigest(scope, config, grader, now);
+										if (digest.kind === "written")
+											notifySafely(
+												ctx,
+												`prompt-tutor Digest written: ${digest.htmlPath}`,
+											);
+										else if (digest.kind === "failed")
+											notifySafely(
+												ctx,
+												`prompt-tutor Digest failed: ${digest.error}`,
+												"error",
+											);
+									} catch (error) {
+										notifySafely(
+											ctx,
+											`prompt-tutor Digest failed: ${String(error)}`,
+											"error",
+										);
+									}
+								}),
+							);
+						} catch (error) {
+							notifySafely(
+								ctx,
+								`prompt-tutor Digest check failed: ${String(error)}`,
 								"error",
 							);
 						}
-					}),
-				);
+					})(),
+				]);
 			} catch (error) {
 				notifySafely(
 					ctx,
-					`prompt-tutor Digest check failed: ${String(error)}`,
+					`prompt-tutor session-start work failed: ${String(error)}`,
 					"error",
 				);
 			}

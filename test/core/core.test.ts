@@ -4,7 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { capture } from "../../src/core/capture.ts";
 import { loadConfig, parseConfig } from "../../src/core/config.ts";
-import { validateReview } from "../../src/core/grader.ts";
+import {
+	DIGEST_PROMPT,
+	digestPromptForLanguage,
+} from "../../src/core/digest/index.ts";
+import {
+	GRADER_PROMPT,
+	GRADER_PROMPT_HASH,
+	graderPromptForLanguage,
+	graderPromptHashForLanguage,
+	validateReview,
+} from "../../src/core/grader.ts";
 import { preprocess } from "../../src/core/preprocess.ts";
 import { review } from "../../src/core/review.ts";
 import { resolveScope } from "../../src/core/scope.ts";
@@ -135,6 +145,65 @@ describe("core configuration and scope matching", () => {
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
+	});
+	test("validates retention and explanation settings at their boundaries", () => {
+		const path = "/tmp/prompt-tutor-config-boundaries.yml";
+		const valid = parseConfig(
+			"keep_months: 2\nexplanation_language: Français\nscopes:\n  - name: work\n",
+			path,
+		);
+		expect(valid.ok).toBe(true);
+		if (valid.ok) {
+			expect(valid.config.keepMonths).toBe(2);
+			expect(valid.config.explanationLanguage).toBe("Français");
+		}
+		const keepAll = parseConfig(
+			"keep_months: null\nscopes:\n  - name: work\n",
+			path,
+		);
+		expect(keepAll.ok).toBe(true);
+		if (keepAll.ok) expect(keepAll.config.keepMonths).toBeNull();
+		for (const value of ["1", "1.5", "true", "'2'"]) {
+			expect(
+				parseConfig(`keep_months: ${value}\nscopes:\n  - name: work\n`, path)
+					.ok,
+			).toBe(false);
+		}
+		for (const value of [
+			"''",
+			"English_1",
+			"'2French'",
+			`'${"a".repeat(41)}'`,
+		]) {
+			expect(
+				parseConfig(
+					`explanation_language: ${value}\nscopes:\n  - name: work\n`,
+					path,
+				).ok,
+			).toBe(false);
+		}
+		expect(
+			parseConfig(
+				`explanation_language: '${"a".repeat(40)}'\nscopes:\n  - name: work\n`,
+				path,
+			).ok,
+		).toBe(true);
+		expect(
+			parseConfig("unknown_setting: true\nscopes:\n  - name: work\n", path).ok,
+		).toBe(false);
+	});
+
+	test("keeps the English prompts and hashes stable while localizing explanations", () => {
+		expect(graderPromptForLanguage("ENGLISH")).toBe(GRADER_PROMPT);
+		expect(graderPromptHashForLanguage("English")).toBe(GRADER_PROMPT_HASH);
+		const localizedGrader = graderPromptForLanguage("Spanish");
+		expect(localizedGrader).toContain("LANGUAGE.");
+		expect(localizedGrader).toContain("in Spanish");
+		expect(graderPromptHashForLanguage("Spanish")).not.toBe(GRADER_PROMPT_HASH);
+		expect(digestPromptForLanguage("english")).toBe(DIGEST_PROMPT);
+		expect(digestPromptForLanguage("Spanish")).toContain(
+			"Write Pattern names and rules, the lesson, and the focus paragraph in Spanish.",
+		);
 	});
 });
 

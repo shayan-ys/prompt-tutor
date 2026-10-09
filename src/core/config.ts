@@ -62,6 +62,8 @@ function defaultConfig(env: Env): Config {
 			},
 		],
 		allScopesLog: resolve(base, "all", "log"),
+		keepMonths: null,
+		explanationLanguage: "English",
 		path: null,
 	};
 }
@@ -84,9 +86,42 @@ export function parseConfig(
 	if (!isObject(parsed))
 		return configError("config must be a YAML object", sourcePath);
 	for (const key of Object.keys(parsed)) {
-		if (key !== "scopes" && key !== "all_scopes_log") {
+		if (
+			key !== "scopes" &&
+			key !== "all_scopes_log" &&
+			key !== "keep_months" &&
+			key !== "explanation_language"
+		) {
 			return configError(`unknown config key: ${key}`, sourcePath);
 		}
+	}
+	let keepMonths: number | null = null;
+	if (parsed.keep_months !== undefined && parsed.keep_months !== null) {
+		if (
+			typeof parsed.keep_months !== "number" ||
+			!Number.isInteger(parsed.keep_months) ||
+			parsed.keep_months < 2
+		) {
+			return configError(
+				"keep_months must be an integer of at least 2 or null",
+				sourcePath,
+			);
+		}
+		keepMonths = parsed.keep_months;
+	}
+	let explanationLanguage = "English";
+	if (parsed.explanation_language !== undefined) {
+		if (
+			typeof parsed.explanation_language !== "string" ||
+			Array.from(parsed.explanation_language).length > 40 ||
+			!/^\p{L}[\p{L} ()'-]*$/u.test(parsed.explanation_language)
+		) {
+			return configError(
+				"explanation_language must be 1–40 letters, spaces, parentheses, apostrophes, or hyphens, starting with a letter",
+				sourcePath,
+			);
+		}
+		explanationLanguage = parsed.explanation_language;
 	}
 	if (!Array.isArray(parsed.scopes) || parsed.scopes.length === 0) {
 		return configError("scopes must be a non-empty list", sourcePath);
@@ -242,7 +277,16 @@ export function parseConfig(
 		}
 	}
 
-	return { ok: true, config: { scopes, allScopesLog, path: sourcePath } };
+	return {
+		ok: true,
+		config: {
+			scopes,
+			allScopesLog,
+			keepMonths,
+			explanationLanguage,
+			path: sourcePath,
+		},
+	};
 }
 
 export async function loadConfig(

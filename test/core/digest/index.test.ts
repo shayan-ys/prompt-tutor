@@ -86,6 +86,8 @@ function configFor(scope: Scope, root: string): Config {
 	return {
 		scopes: [scope],
 		allScopesLog: path.join(root, "all", "log"),
+		keepMonths: null,
+		explanationLanguage: "English",
 		path: null,
 	};
 }

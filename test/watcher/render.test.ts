@@ -5,6 +5,8 @@ import { renderErrorFrame, renderFrame } from "../../src/watcher/render.ts";
 const config: Config = {
 	path: null,
 	allScopesLog: "/tmp/prompt-tutor/all/log",
+	keepMonths: null,
+	explanationLanguage: "English",
 	scopes: [
 		{
 			name: "work",

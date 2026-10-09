@@ -93,6 +93,10 @@ export interface Config {
 	scopes: Scope[];
 	/** Absolute directory of the all-Scopes Review log; written only when scopes.length >= 2. */
 	allScopesLog: string;
+	/** Number of local Review log months to retain, or null to keep everything. */
+	keepMonths: number | null;
+	/** Language used for Review explanations and Digest prose; English remains the target. */
+	explanationLanguage: string;
 	/** Absolute config path, or null when no config file exists (one Scope named `default`). */
 	path: string | null;
 }

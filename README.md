@@ -48,7 +48,10 @@ The Watcher reads local records and Review logs; it does not write them. The fir
 ## Configuration
 
 Configuration is YAML at `$XDG_CONFIG_HOME/prompt-tutor/config.yml` (normally `~/.config/prompt-tutor/config.yml`). The first matching Scope wins; conditions in one `when` entry are ANDed, and entries are ORed. This routes the `personal` profile or work under `~/Documents/personal/` to the personal store, with everything else in work:
+
 ```yaml
+keep_months: 2
+explanation_language: Spanish
 scopes:
   - name: personal
     when:
@@ -57,13 +60,13 @@ scopes:
   - name: work
 ```
 
-With no config file, prompt-tutor uses one `default` Scope. Each Scope stores its Prompt records, Review log, and Digest in its own directory. See [ADR 0007](./docs/adr/0007-digest-runs-in-scope-profile.md) for Digest routing.
+`keep_months` is optional; absent or `null` keeps all Review log months. When set, it must be an integer of at least 2 and retains the current local month plus that many months before it. `explanation_language` is optional, defaults to English, and sets the language of explanations—not the target language, which remains English. With no config file, prompt-tutor uses one `default` Scope and keeps all months. Each Scope stores its Prompt records, Review log, and Digest in its own directory. See [ADR 0007](./docs/adr/0007-digest-runs-in-scope-profile.md) for Digest routing.
 
 ## Privacy
 
-1. **Provider exposure per Prompt:** each Prompt is sent to the `@task` model configured for the omp session's active profile. That model may use a different provider from the session's main model. Scope selection does not change which provider receives the Prompt; only that profile's `@task` setting does.
-2. **Storage Scope:** the profile and cwd rules decide only where the Prompt and Review are stored.
-3. **Digest routing:** a Scope's Digest runs only in sessions of its `digest_profile` (by default, its sole profile condition; otherwise any session resolving to that Scope). That week's Findings, each with the sentence it came from, are sent to that session profile's `@advisor` model. This limits which profile runs the Digest, not which providers its data might reach.
+1. **Provider exposure:** each Prompt's text is sent to the session profile's `@task` model for its Review (ADR 0008). Each week's Findings, with the sentences they came from, are sent to the Scope's Digest profile's `@advisor` model (ADR 0007). Scope selection does not change which provider receives a Prompt; the active profile's `@task` setting does.
+2. **Storage:** by default, each Scope's files are under `$XDG_DATA_HOME/prompt-tutor/<scope>/` (normally `~/.local/share/prompt-tutor/<scope>/`); a configured `store` may choose another path. With two or more Scopes, the all-Scopes Review log is stored at `$XDG_DATA_HOME/prompt-tutor/all/log/` unless `all_scopes_log` overrides it. Files are written with mode `0600`. Prompt records contain only preprocessed text: a leading slash token is removed and fenced code is replaced with `[code]`. `keep_months` optionally prunes old Review log months; `prompt-tutor --delete-data` lists the known data paths, and adding `--yes` removes them.
+3. **Scope separation:** Scopes keep work and personal Prompt records, Review logs, and Digests apart. They do not isolate or change providers. `explanation_language` changes only the language of explanations, not what is sent.
 
 ## Upgrade
 
@@ -77,17 +80,31 @@ For the default profile, omit `--profile <p>`. Users track `main`; SemVer tags a
 
 ## Uninstall
 
-First remove the Watcher link at the path printed by `install-watcher`, only if it is a symlink into a prompt-tutor installation. Do not use `rm "$(command -v prompt-tutor)"`, which may select a different executable. Then uninstall from every profile:
+Quit all omp sessions first. Before removing the Watcher command or plugin, review the data-removal dry run:
+
+```sh
+prompt-tutor --delete-data
+```
+
+If you want to remove the listed data, run:
+
+```sh
+prompt-tutor --delete-data --yes
+```
+
+This removes only known prompt-tutor paths for the current config. Unknown files are left in place and reported; the config file is never deleted. If a Scope was renamed or removed from the config, its old store is not discovered by this command.
+
+Next, remove the Watcher link at the path printed by `install-watcher`, only if it is a symlink into a prompt-tutor installation. Do not use `rm "$(command -v prompt-tutor)"`, which may select a different executable. Finally, uninstall from every profile:
 
 ```sh
 omp --profile <p> plugin uninstall prompt-tutor
 ```
 
-Stored Prompt records, Reviews, and Digests are not removed by uninstall.
+For the default profile, omit `--profile <p>`.
 
 ## How it works
 
-See the [glossary](./GLOSSARY.md) and the architecture decisions: [per-Prompt storage](./docs/adr/0001-per-prompt-json-files.md), [just-in-time Digest](./docs/adr/0002-just-in-time-digest.md), [role-based grading](./docs/adr/0003-grader-via-advisor-role.md), [model-written Digest](./docs/adr/0004-digest-written-by-advisor.md), [installing from main](./docs/adr/0005-install-from-main.md), [Review log rebuilds](./docs/adr/0006-review-log-rebuilt-not-appended.md), [Digest profile routing](./docs/adr/0007-digest-runs-in-scope-profile.md), and [grading with `@task`](./docs/adr/0008-grader-via-task-role.md).
+See the [glossary](./GLOSSARY.md) and the architecture decisions: [per-Prompt storage](./docs/adr/0001-per-prompt-json-files.md), [just-in-time Digest](./docs/adr/0002-just-in-time-digest.md), [role-based grading](./docs/adr/0003-grader-via-advisor-role.md), [model-written Digest](./docs/adr/0004-digest-written-by-advisor.md), [installing from main](./docs/adr/0005-install-from-main.md), [Review log rebuilds](./docs/adr/0006-review-log-rebuilt-not-appended.md), [Digest profile routing](./docs/adr/0007-digest-runs-in-scope-profile.md), [grading with `@task`](./docs/adr/0008-grader-via-task-role.md), [retention and data deletion](./docs/adr/0009-retention-by-log-month.md), and [English target with localized explanations](./docs/adr/0010-english-target-explanation-language.md).
 
 ## Contributing
 
