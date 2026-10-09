@@ -1,6 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { type FSWatcher, watch } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import {
+	open,
+	readdir,
+	readFile,
+	rename,
+	stat,
+	unlink,
+} from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../core/config.ts";
 import {
 	listMonths,
@@ -9,6 +17,12 @@ import {
 	readRecentRecords,
 } from "../core/store.ts";
 import type { Config, ConfigResult, PromptRecord } from "../core/types.ts";
+import {
+	applyWatcherAction,
+	reconcileWatcherSelection,
+	type WatcherAction,
+	type WatcherSelection,
+} from "./navigation.ts";
 import { renderErrorFrame, renderFrame } from "./render.ts";
 
 const RECENT_LIMIT = 100;
@@ -129,9 +143,90 @@ export type OnceResult =
 	| { ok: true; frame: string }
 	| { ok: false; error: string };
 
+function defaultSelection(): WatcherSelection {
+	return { view: "all", selectedId: null };
+}
+
+function parseDashboardState(
+	contents: string,
+	snapshot: Extract<WatcherSnapshot, { kind: "ready" }>,
+): WatcherSelection {
+	try {
+		const value: unknown = JSON.parse(contents);
+		if (!value || typeof value !== "object" || Array.isArray(value))
+			return defaultSelection();
+		const state = value as {
+			version?: unknown;
+			view?: unknown;
+			selected?: unknown;
+		};
+		if (
+			state.version !== 1 ||
+			typeof state.view !== "string" ||
+			(state.selected !== null && typeof state.selected !== "string")
+		)
+			return defaultSelection();
+		return reconcileWatcherSelection(
+			{ view: state.view, selectedId: state.selected },
+			snapshot.config.scopes,
+			snapshot.records,
+		);
+	} catch {
+		return defaultSelection();
+	}
+}
+
+async function readDashboardState(
+	path: string,
+	snapshot: Extract<WatcherSnapshot, { kind: "ready" }>,
+): Promise<WatcherSelection> {
+	try {
+		return parseDashboardState(await readFile(path, "utf8"), snapshot);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT")
+			return defaultSelection();
+		throw error;
+	}
+}
+
+async function writeDashboardState(
+	path: string,
+	selection: WatcherSelection,
+): Promise<void> {
+	const temporary = join(
+		dirname(path),
+		`.${basename(path)}.${process.pid}.${randomUUID()}.tmp`,
+	);
+	let temporaryCreated = false;
+	try {
+		const handle = await open(temporary, "wx", 0o600);
+		temporaryCreated = true;
+		try {
+			await handle.writeFile(
+				`${JSON.stringify({
+					version: 1,
+					view: selection.view,
+					selected: selection.selectedId,
+				})}\n`,
+				"utf8",
+			);
+		} finally {
+			await handle.close();
+		}
+		await rename(temporary, path);
+		temporaryCreated = false;
+	} finally {
+		if (temporaryCreated) {
+			await unlink(temporary).catch((error: unknown) => {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			});
+		}
+	}
+}
+
 /**
- * Render the all view once for a host such as devdash, without opening a TTY or writing to the store.
- * A config or read failure is returned as a one-line error so the host can keep its last good frame.
+ * Render one frame for a host such as devdash. Dashboard state is separate from the read-only Prompt store.
+ * A config or store read failure is returned as a one-line error so the host can keep its last good frame.
  */
 export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 	let snapshot: WatcherSnapshot;
@@ -153,20 +248,71 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 			ok: false,
 			error: oneLine(`could not read the prompt store: ${snapshot.error}`),
 		};
-	return {
-		ok: true,
-		frame: renderFrame({
-			config: snapshot.config,
-			records: snapshot.records,
-			view: "all",
-			selectedId: null,
-			width,
-			height,
-			now: Date.now(),
-			newerVersion: snapshot.newerVersion,
-			embedded: true,
-		}),
-	};
+
+	const statePath = process.env.DEVDASH_STATE_FILE || undefined;
+	let selection = defaultSelection();
+	if (statePath !== undefined) {
+		try {
+			selection = await readDashboardState(statePath, snapshot);
+		} catch (error) {
+			return {
+				ok: false,
+				error: oneLine(
+					`could not read DEVDASH_STATE_FILE: ${failureMessage(error)}`,
+				),
+			};
+		}
+	}
+
+	if (statePath !== undefined) {
+		const actionValue = process.env.DEVDASH_ACTION;
+		let action: WatcherAction | undefined;
+		if (actionValue !== undefined) {
+			if (
+				actionValue !== "newer" &&
+				actionValue !== "older" &&
+				actionValue !== "scope"
+			)
+				return {
+					ok: false,
+					error: `unknown DEVDASH_ACTION: ${JSON.stringify(actionValue)}`,
+				};
+			action = actionValue;
+		}
+		if (action)
+			selection = applyWatcherAction(
+				selection,
+				action,
+				snapshot.config.scopes,
+				snapshot.records,
+			);
+	}
+
+	const frame = renderFrame({
+		config: snapshot.config,
+		records: snapshot.records,
+		view: selection.view,
+		selectedId: selection.selectedId,
+		width,
+		height,
+		now: Date.now(),
+		newerVersion: snapshot.newerVersion,
+		embedded: true,
+		showNavigation: statePath !== undefined,
+	});
+	if (statePath !== undefined) {
+		try {
+			await writeDashboardState(statePath, selection);
+		} catch (error) {
+			return {
+				ok: false,
+				error: oneLine(
+					`could not write DEVDASH_STATE_FILE: ${failureMessage(error)}`,
+				),
+			};
+		}
+	}
+	return { ok: true, frame };
 }
 
 function visibleRecords(
@@ -299,10 +445,14 @@ export async function startWatcher(): Promise<void> {
 					closeWatchers();
 					currentDirectorySignature = "";
 				}
-				if (selectedId !== null && snapshot.kind === "ready") {
-					const inView = visibleRecords(snapshot, view);
-					if (!inView.some((record) => record.id === selectedId))
-						selectedId = null;
+				if (snapshot.kind === "ready") {
+					const selection = reconcileWatcherSelection(
+						{ view, selectedId },
+						snapshot.config.scopes,
+						snapshot.records,
+					);
+					view = selection.view;
+					selectedId = selection.selectedId;
 				}
 				draw();
 			} while (refreshAgain && !stopped);
@@ -360,33 +510,19 @@ export async function startWatcher(): Promise<void> {
 			return;
 		}
 		if (snapshot.kind !== "ready") return;
-		if (key === "s") {
-			const views = [
-				"all",
-				...snapshot.config.scopes.map((scope) => scope.name),
-			];
-			const currentIndex = views.indexOf(view);
-			view =
-				currentIndex >= views.length - 1 ? "all" : views[currentIndex + 1]!;
-			selectedId = null;
-			draw();
-			return;
-		}
-		const records = visibleRecords(snapshot, view);
-		const selectedIndex =
-			selectedId === null
-				? 0
-				: Math.max(
-						0,
-						records.findIndex((record) => record.id === selectedId),
-					);
-		if (key === "k" || key === "\x1b[B") {
-			if (selectedIndex + 1 < records.length)
-				selectedId = records[selectedIndex + 1]!.id;
-		} else if (key === "j" || key === "\x1b[A") {
-			if (selectedIndex <= 1) selectedId = null;
-			else selectedId = records[selectedIndex - 1]!.id;
-		}
+		let action: WatcherAction;
+		if (key === "s") action = "scope";
+		else if (key === "k" || key === "\x1b[B") action = "older";
+		else if (key === "j" || key === "\x1b[A") action = "newer";
+		else return;
+		const selection = applyWatcherAction(
+			{ view, selectedId },
+			action,
+			snapshot.config.scopes,
+			snapshot.records,
+		);
+		view = selection.view;
+		selectedId = selection.selectedId;
 		draw();
 	};
 	const onResize = () => draw();

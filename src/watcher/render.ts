@@ -45,8 +45,10 @@ export interface RenderFrameOptions {
 	height?: number;
 	now?: number;
 	newerVersion?: number;
-	/** One frame for a host such as devdash: no title line, view tabs, follow indicator, or key row. */
+	/** One frame for a host: no title line, tabs, follow indicator, or key row unless overridden below. */
 	embedded?: boolean;
+	/** Include the Watcher's view tabs and follow indicator in an embedded frame. */
+	showNavigation?: boolean;
 }
 
 function safeText(text: string): string {
@@ -488,16 +490,17 @@ export function renderFrame(options: RenderFrameOptions): string {
 		width - visibleLength(renderSegment(indicator)),
 	);
 	const titleLines = wrap(title, titleRoom, " ");
-	const lines = options.embedded
-		? []
-		: [
+	const showNavigation = options.showNavigation ?? !options.embedded;
+	const lines = showNavigation
+		? [
 				padRight(
 					titleLines[0] ?? "",
 					width - visibleLength(renderSegment(indicator)),
 				) + renderSegment(indicator),
 				...titleLines.slice(1),
 				"",
-			];
+			]
+		: [];
 
 	if (options.newerVersion && options.newerVersion > 0) {
 		lines.push(
