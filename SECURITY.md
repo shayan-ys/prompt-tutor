@@ -8,4 +8,4 @@ Include the affected commit or release, omp version, operating system, and a con
 
 ## Scope and data handling
 
-prompt-tutor stores Prompt records and generated Reviews locally in the configured Scope store. The grader sends each Prompt to the session profile's configured `@advisor`; review the [Privacy](README.md#privacy) section before enabling it for sensitive work.
+prompt-tutor stores Prompt records and generated Reviews locally in the configured Scope store. The grader sends each Prompt to the session profile's configured `@task` model; review the [Privacy](README.md#privacy) section before enabling it for sensitive work.

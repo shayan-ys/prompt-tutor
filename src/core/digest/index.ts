@@ -708,6 +708,7 @@ export async function runDigest(
 ): Promise<
 	| { kind: "written"; htmlPath: string; week: string }
 	| { kind: "empty"; week: string }
+	| { kind: "current"; week: string }
 	| { kind: "locked" }
 	| { kind: "failed"; error: string }
 > {
@@ -722,11 +723,15 @@ export async function runDigest(
 		lockToken = await acquireLock(lockPath);
 		if (lockToken === null) return { kind: "locked" };
 
+		// `<week>.json` is the completion marker. Another session may have finished this
+		// week between our stale check and acquiring the lock, so check again under it.
+		const jsonPath = path.join(digestDirectory, `${week}.json`);
+		if (await pathExists(jsonPath)) return { kind: "current", week };
+
 		const records = await readWeekRecords(scope, start, ending);
 		const findings = collectFindings(records);
 		const stats = makeStats(records, findings);
 		const versions = graderVersions(records);
-		const jsonPath = path.join(digestDirectory, `${week}.json`);
 		if (stats.reviewed === 0) {
 			await writeFileAtomic(
 				jsonPath,
@@ -781,11 +786,12 @@ export async function runDigest(
 		});
 		const htmlPath = path.join(digestDirectory, `${week}.html`);
 		await writeFileAtomic(htmlPath, html);
-		await writeFileAtomic(jsonPath, `${JSON.stringify(archive, null, 2)}\n`);
 		await writeFileAtomic(
 			path.join(scope.store, "digest.html"),
 			baseCopy(html),
 		);
+		// Written last: if an earlier write fails, the week stays stale and the next session retries.
+		await writeFileAtomic(jsonPath, `${JSON.stringify(archive, null, 2)}\n`);
 		return { kind: "written", htmlPath, week };
 	} catch (error) {
 		return {

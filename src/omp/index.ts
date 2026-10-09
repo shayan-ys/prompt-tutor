@@ -26,14 +26,16 @@ import type {
 
 const STATUS_KEY = "prompt-tutor";
 const PACKAGE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+/** omp role that grades Reviews and writes Digests (ADR 0008). */
+const GRADER_ROLE = "@task";
 
 // omp maps canonical @oh-my-pi imports to its host-bundled packages at runtime.
 function makeGrader(ctx: ExtensionContext): Grader {
 	return {
 		async call(request: GraderRequest): Promise<GraderResponse> {
-			const model = ctx.models.resolve("@advisor");
+			const model = ctx.models.resolve(GRADER_ROLE);
 			if (!model)
-				throw new Error("No available model is configured for @advisor.");
+				throw new Error(`No available model is configured for ${GRADER_ROLE}.`);
 
 			const tool: Tool = {
 				name: request.tool.name,

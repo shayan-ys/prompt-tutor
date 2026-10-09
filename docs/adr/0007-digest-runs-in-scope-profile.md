@@ -4,5 +4,5 @@ Scopes are chosen by omp profile and by working directory (cwd), so a session in
 
 ## Consequences
 
-- Scopes and `digest_profile` control where data is **stored** and which profile **runs the Digest**. They don't isolate providers. Each Review sends the Prompt text to the `@advisor` of the session's own profile (ADR 0003). That model can come from a different provider than the session's main model, and the session's Scope doesn't change which one it is. Only each profile's `@advisor` setting decides which provider receives that profile's Prompts. The README's privacy section has to say this.
+- Scopes and `digest_profile` control where data is **stored** and which profile **runs the Digest**. They don't isolate providers. Each Review sends the Prompt text to the grader role of the session's own profile: `@task` since ADR 0008, `@advisor` before it. That model can come from a different provider than the session's main model, and the session's Scope doesn't change which one it is. Only each profile's grader role setting decides which provider receives that profile's Prompts. The README's privacy section has to say this.
 - If no session of a Scope's `digest_profile` starts during a week, that Scope gets no Digest that week.

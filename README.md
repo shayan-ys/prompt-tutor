@@ -61,9 +61,9 @@ With no config file, prompt-tutor uses one `default` Scope. Each Scope stores it
 
 ## Privacy
 
-1. **Provider exposure per Prompt:** each Prompt is sent to the `@advisor` configured for the omp session's active profile. That advisor may use a different provider from the session's main model. Scope selection does not change which provider receives the Prompt; only that profile's `@advisor` setting does.
+1. **Provider exposure per Prompt:** each Prompt is sent to the `@task` model configured for the omp session's active profile. That model may use a different provider from the session's main model. Scope selection does not change which provider receives the Prompt; only that profile's `@task` setting does.
 2. **Storage Scope:** the profile and cwd rules decide only where the Prompt and Review are stored.
-3. **Digest routing:** a Scope's Digest runs only in sessions of its `digest_profile` (by default, its sole profile condition; otherwise any session resolving to that Scope). Findings from a week are therefore sent to that session profile's `@advisor`. This limits which profile runs the Digest, not which providers its data might reach.
+3. **Digest routing:** a Scope's Digest runs only in sessions of its `digest_profile` (by default, its sole profile condition; otherwise any session resolving to that Scope). Findings from a week are therefore sent to that session profile's `@task` model. This limits which profile runs the Digest, not which providers its data might reach.
 
 ## Upgrade
 
@@ -87,7 +87,7 @@ Stored Prompt records, Reviews, and Digests are not removed by uninstall.
 
 ## How it works
 
-See the [glossary](./GLOSSARY.md) and the architecture decisions: [per-Prompt storage](./docs/adr/0001-per-prompt-json-files.md), [just-in-time Digest](./docs/adr/0002-just-in-time-digest.md), [advisor grading](./docs/adr/0003-grader-via-advisor-role.md), [advisor-written Digest](./docs/adr/0004-digest-written-by-advisor.md), [installing from main](./docs/adr/0005-install-from-main.md), [Review log rebuilds](./docs/adr/0006-review-log-rebuilt-not-appended.md), and [Digest profile routing](./docs/adr/0007-digest-runs-in-scope-profile.md).
+See the [glossary](./GLOSSARY.md) and the architecture decisions: [per-Prompt storage](./docs/adr/0001-per-prompt-json-files.md), [just-in-time Digest](./docs/adr/0002-just-in-time-digest.md), [role-based grading](./docs/adr/0003-grader-via-advisor-role.md), [model-written Digest](./docs/adr/0004-digest-written-by-advisor.md), [installing from main](./docs/adr/0005-install-from-main.md), [Review log rebuilds](./docs/adr/0006-review-log-rebuilt-not-appended.md), [Digest profile routing](./docs/adr/0007-digest-runs-in-scope-profile.md), and [grading with `@task`](./docs/adr/0008-grader-via-task-role.md).
 
 ## Contributing
 

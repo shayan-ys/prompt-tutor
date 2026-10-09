@@ -556,4 +556,78 @@ describe("runDigest", () => {
 		);
 		expect(due).toEqual([]);
 	});
+
+	test("grades a week once when sessions start together or later", async () => {
+		const target = await fixture();
+		const scope = scopeFor(target.store);
+		const promptDate = new Date(
+			endingFriday.getFullYear(),
+			endingFriday.getMonth(),
+			endingFriday.getDate() - 1,
+			13,
+		);
+		await putRecords(target.store, [
+			makeRecord(scope, "prompt-1", promptDate, "This are wrong."),
+		]);
+		const fake = fakeGrader([
+			response([
+				{
+					id: "agreement",
+					name: "Agreement",
+					rule: "A singular subject takes a singular verb.",
+					findingIds: ["prompt-1:1"],
+				},
+			]),
+		]);
+		const config = configFor(scope, target.root);
+		const now = new Date(endingFriday.getTime());
+		const together = await Promise.all([
+			runDigest(scope, config, fake.grader, now),
+			runDigest(scope, config, fake.grader, now),
+		]);
+		expect(together.map(({ kind }) => kind).sort()).toEqual([
+			"locked",
+			"written",
+		]);
+		const later = await runDigest(scope, config, fake.grader, now);
+		expect(later).toEqual({ kind: "current", week: "2026-10-02" });
+		expect(fake.requests).toHaveLength(1);
+	});
+
+	test("leaves the week stale when publishing digest.html fails", async () => {
+		const target = await fixture();
+		const scope = scopeFor(target.store);
+		const promptDate = new Date(
+			endingFriday.getFullYear(),
+			endingFriday.getMonth(),
+			endingFriday.getDate() - 1,
+			13,
+		);
+		await putRecords(target.store, [
+			makeRecord(scope, "prompt-1", promptDate, "This are wrong."),
+		]);
+		const fake = fakeGrader([
+			response([
+				{
+					id: "agreement",
+					name: "Agreement",
+					rule: "A singular subject takes a singular verb.",
+					findingIds: ["prompt-1:1"],
+				},
+			]),
+		]);
+		const blocker = path.join(target.store, "digest.html");
+		await mkdir(path.join(blocker, "occupied"), { recursive: true });
+		const config = configFor(scope, target.root);
+		const now = new Date(endingFriday.getTime());
+		const failed = await runDigest(scope, config, fake.grader, now);
+		expect(failed.kind).toBe("failed");
+		await expect(
+			readFile(path.join(target.store, "digests", "2026-10-02.json"), "utf8"),
+		).rejects.toThrow();
+
+		await rm(blocker, { recursive: true });
+		const retried = await runDigest(scope, config, fake.grader, now);
+		expect(retried.kind).toBe("written");
+	});
 });
