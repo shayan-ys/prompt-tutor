@@ -435,55 +435,19 @@ export function renderErrorFrame(
 	];
 	return fitFrame(lines, height);
 }
-/** Return the maximum body offset renderFrame can display for this selection and frame size. */
-export function bodyScrollRange(options: RenderFrameOptions): number {
-	const width = Math.max(20, Math.min((options.width ?? 80) - 2, 100));
-	const height = options.height ?? 24;
-	const sortedRecords = sortNewestFirst(options.records);
-	const inView =
-		options.view === "all"
-			? sortedRecords
-			: sortedRecords.filter((record) => record.scope === options.view);
-	const selectedIndex =
-		options.selectedId === null
-			? 0
-			: Math.max(
-					0,
-					inView.findIndex((record) => record.id === options.selectedId),
-				);
-	const selected = inView[selectedIndex];
-	if (!selected) return 0;
-	const body = stateBody(selected, width, options.now ?? Date.now());
-	const older = inView.slice(selectedIndex + 1, selectedIndex + 4);
-	const showNavigation = options.showNavigation ?? !options.embedded;
-	const leadingLines = showNavigation ? 2 : 0;
-	const trailingLines = older.length ? 3 + older.length : 0;
-	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
-	const bodyRoom = Math.max(1, frameCapacity - leadingLines - trailingLines);
-	return body.length > bodyRoom
-		? Math.max(0, body.length - Math.max(1, bodyRoom - 2))
-		: 0;
+interface PreparedFrame {
+	width: number;
+	height: number;
+	now: number;
+	selected: PromptRecord | undefined;
+	lines: string[];
+	body: string[];
+	older: PromptRecord[];
+	frameCapacity: number;
+	bodyRoom: number;
 }
 
-function fitFrame(lines: string[], height: number, keyRow = true): string {
-	const available = Math.max(1, keyRow ? height - 2 : height);
-	const shown =
-		lines.length > available
-			? [
-					...lines.slice(0, available - 1),
-					`${DIM}  … ${lines.length - available + 1} more lines${RESET}`,
-				]
-			: lines;
-	if (!keyRow) return shown.join("\n");
-	return [
-		...shown,
-		"",
-		`${DIM}  j/k prompts  J/K scroll  s scope  q quit${RESET}`,
-	].join("\n");
-}
-
-/** Render a complete, side-effect-free Watcher frame. */
-export function renderFrame(options: RenderFrameOptions): string {
+function prepareFrame(options: RenderFrameOptions): PreparedFrame {
 	const { config } = options;
 	const width = Math.max(20, Math.min((options.width ?? 80) - 2, 100));
 	const height = options.height ?? 24;
@@ -540,6 +504,91 @@ export function renderFrame(options: RenderFrameOptions): string {
 			"",
 		);
 	}
+
+	const older = selected
+		? inView.slice(selectedIndex + 1, selectedIndex + 4)
+		: [];
+	let body: string[] = [];
+	if (selected) {
+		const head: Segment[] = [
+			scopeTag(config, selected.scope),
+			{ text: `  ${captureTime(selected)}   ` },
+			...countBadges(selected),
+		];
+		const logScope =
+			options.view === "all"
+				? null
+				: (config.scopes.find((scope) => scope.name === options.view) ?? null);
+		const headerLink: Segment = {
+			text: "log ↗",
+			style: fg(75) + "\x1b[4m",
+			href: stubUrl(config, logScope, selected.id),
+		};
+		const renderedLink = renderSegment(headerLink);
+		const linkWidth = visibleLength(renderedLink);
+		const headLines = wrap(head, Math.max(1, width - linkWidth - 1), " ");
+		lines.push(
+			padRight(headLines[0] ?? "", width - linkWidth - 1) + renderedLink,
+			...headLines.slice(1),
+			"",
+		);
+		body = stateBody(selected, width, now);
+	}
+
+	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
+	const trailingLines = older.length ? 3 + older.length : 0;
+	const bodyRoom = Math.max(0, frameCapacity - lines.length - trailingLines);
+	return {
+		width,
+		height,
+		now,
+		selected,
+		lines,
+		body,
+		older,
+		frameCapacity,
+		bodyRoom,
+	};
+}
+
+function maxBodyScroll(bodyLength: number, bodyRoom: number): number {
+	if (bodyRoom < 1 || bodyLength <= bodyRoom) return 0;
+	const visibleRoom = bodyRoom >= 3 ? Math.max(1, bodyRoom - 2) : bodyRoom;
+	return Math.max(0, bodyLength - visibleRoom);
+}
+
+/** Return the maximum body offset renderFrame can display for this selection and frame size. */
+export function bodyScrollRange(options: RenderFrameOptions): number {
+	const { body, bodyRoom } = prepareFrame(options);
+	return maxBodyScroll(body.length, bodyRoom);
+}
+
+function lineWord(count: number): string {
+	return count === 1 ? "line" : "lines";
+}
+
+function fitFrame(lines: string[], height: number, keyRow = true): string {
+	const available = Math.max(1, keyRow ? height - 2 : height);
+	const shown =
+		lines.length > available
+			? [
+					...lines.slice(0, available - 1),
+					`${DIM}  … ${lines.length - available + 1} more ${lineWord(lines.length - available + 1)}${RESET}`,
+				]
+			: lines;
+	if (!keyRow) return shown.join("\n");
+	return [
+		...shown,
+		"",
+		`${DIM}  j/k prompts  J/K scroll  s scope  q quit${RESET}`,
+	].join("\n");
+}
+
+/** Render a complete, side-effect-free Watcher frame. */
+export function renderFrame(options: RenderFrameOptions): string {
+	const prepared = prepareFrame(options);
+	const { width, height, now, selected, lines, body, older, bodyRoom } =
+		prepared;
 	if (!selected) {
 		lines.push(
 			...wrap(
@@ -559,45 +608,23 @@ export function renderFrame(options: RenderFrameOptions): string {
 		return fitFrame(lines, height, !options.embedded);
 	}
 
-	const head: Segment[] = [
-		scopeTag(config, selected.scope),
-		{ text: `  ${captureTime(selected)}   ` },
-		...countBadges(selected),
-	];
-	const logScope =
-		options.view === "all"
-			? null
-			: (config.scopes.find((scope) => scope.name === options.view) ?? null);
-	const headerLink: Segment = {
-		text: "log ↗",
-		style: fg(75) + "\x1b[4m",
-		href: stubUrl(config, logScope, selected.id),
-	};
-	const renderedLink = renderSegment(headerLink);
-	const linkWidth = visibleLength(renderedLink);
-	const headLines = wrap(head, Math.max(1, width - linkWidth - 1), " ");
-	lines.push(
-		padRight(headLines[0] ?? "", width - linkWidth - 1) + renderedLink,
-		...headLines.slice(1),
-		"",
-	);
-
-	const body = stateBody(selected, width, now);
-	const older = inView.slice(selectedIndex + 1, selectedIndex + 4);
-	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
-	const trailingLines = older.length ? 3 + older.length : 0;
-	const bodyRoom = Math.max(1, frameCapacity - lines.length - trailingLines);
 	let scroll = Math.max(0, Math.floor(options.scroll ?? 0));
+	const maxScroll = maxBodyScroll(body.length, bodyRoom);
+	scroll = Math.min(scroll, maxScroll);
 	if (body.length > bodyRoom) {
-		const baseRoom = Math.max(1, bodyRoom - 2);
-		scroll = Math.min(scroll, body.length - baseRoom);
-		const above = scroll > 0;
-		const visibleCount = Math.max(1, bodyRoom - (above ? 1 : 0) - 1);
-		const visible = body.slice(scroll, scroll + visibleCount);
-		if (above) lines.push(`${DIM}  … ${scroll} lines above${RESET}`);
-		lines.push(...visible);
-		const below = body.length - scroll - visible.length;
-		if (below > 0) lines.push(`${DIM}  … ${below} more lines${RESET}`);
+		if (bodyRoom < 3) {
+			lines.push(...body.slice(scroll, scroll + bodyRoom));
+		} else {
+			const above = scroll > 0;
+			const visibleCount = bodyRoom - (above ? 1 : 0) - 1;
+			const visible = body.slice(scroll, scroll + visibleCount);
+			if (above)
+				lines.push(`${DIM}  … ${scroll} ${lineWord(scroll)} above${RESET}`);
+			lines.push(...visible);
+			const below = body.length - scroll - visible.length;
+			if (below > 0)
+				lines.push(`${DIM}  … ${below} more ${lineWord(below)}${RESET}`);
+		}
 	} else {
 		lines.push(...body);
 	}

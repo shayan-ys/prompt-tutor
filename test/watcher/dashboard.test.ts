@@ -297,8 +297,8 @@ describe("prompt-tutor dashboard state", () => {
 				}),
 			);
 			expect(down.status).toBe(0);
-			expect(plain(down.stdout)).toContain("lines above");
-			expect(plain(down.stdout)).toContain("more lines");
+			expect(plain(down.stdout)).toMatch(/… 1 line above/);
+			expect(plain(down.stdout)).toMatch(/… \d+ more lines?/);
 			expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
 				version: 1,
 				view: "all",
@@ -313,7 +313,7 @@ describe("prompt-tutor dashboard state", () => {
 				}),
 			);
 			expect(up.status).toBe(0);
-			expect(plain(up.stdout)).not.toContain("lines above");
+			expect(plain(up.stdout)).not.toMatch(/lines? above/);
 			expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
 				version: 1,
 				view: "all",

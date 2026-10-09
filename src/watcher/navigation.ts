@@ -51,6 +51,7 @@ export function applyWatcherAction(
 	maxScroll = Number.MAX_SAFE_INTEGER,
 ): WatcherSelection {
 	const current = reconcileWatcherSelection(selection, scopes, records);
+	const currentScroll = Math.max(0, Math.min(maxScroll, current.scroll));
 	if (action === "scope") {
 		const scopeIndex = scopes.findIndex((scope) => scope.name === current.view);
 		const nextScope = scopes[scopeIndex + 1];
@@ -62,9 +63,9 @@ export function applyWatcherAction(
 		};
 	}
 	if (action === "scroll-down")
-		return { ...current, scroll: Math.min(maxScroll, current.scroll + 1) };
+		return { ...current, scroll: Math.min(maxScroll, currentScroll + 1) };
 	if (action === "scroll-up")
-		return { ...current, scroll: Math.max(0, current.scroll - 1) };
+		return { ...current, scroll: Math.max(0, currentScroll - 1) };
 
 	const visible =
 		current.view === "all"

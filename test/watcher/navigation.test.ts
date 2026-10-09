@@ -102,6 +102,17 @@ describe("Watcher navigation", () => {
 			),
 		).toEqual({ ...selection, scroll: 0 });
 	});
+	test("scroll-up clamps a stale scroll before applying the key", () => {
+		expect(
+			applyWatcherAction(
+				{ view: "all", selectedId: "middle", scroll: 5 },
+				"scroll-up",
+				scopes,
+				records,
+				2,
+			),
+		).toEqual({ view: "all", selectedId: "middle", scroll: 1 });
+	});
 
 	test("selection and view changes reset scrolling", () => {
 		expect(

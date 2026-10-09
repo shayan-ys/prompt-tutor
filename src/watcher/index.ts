@@ -302,6 +302,7 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 				selectedId: selection.selectedId,
 				width,
 				height,
+				newerVersion: snapshot.newerVersion,
 				embedded: true,
 				showNavigation: true,
 			}),
@@ -336,6 +337,7 @@ export async function renderOnce(width = 80, height = 24): Promise<OnceResult> {
 					selectedId: selection.selectedId,
 					width,
 					height,
+					newerVersion: snapshot.newerVersion,
 					embedded: true,
 					showNavigation: true,
 				}),
@@ -600,6 +602,7 @@ export async function startWatcher(): Promise<void> {
 				selectedId,
 				width: process.stdout.columns ?? 80,
 				height: process.stdout.rows ?? 24,
+				newerVersion: snapshot.newerVersion,
 			}),
 		);
 		view = selection.view;
