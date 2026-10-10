@@ -2,7 +2,12 @@ import { lstat, mkdir, readlink, realpath, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { completeSimple, type Tool, type ToolCall } from "@oh-my-pi/pi-ai";
+import {
+	type AssistantMessage,
+	completeSimple,
+	type Tool,
+	type ToolCall,
+} from "@oh-my-pi/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -34,11 +39,13 @@ interface GraderRole {
 	role: string;
 	// `Effort` is a const enum in pi-catalog; its members' runtime values are these strings.
 	reasoning: "medium" | "high";
-	/** Stall limits; unset keeps the provider defaults and no overall cap. */
+	/** Stall limits; unset keeps the provider defaults, one call, and no overall cap. */
 	timeouts?: {
-		/** Wait for the first stream event; the provider then reconnects or falls back and retries. */
+		/** Wait for the first stream event before the call fails as stalled. */
 		firstEventMs: number;
-		/** Last-resort cap on the whole call, retries included. */
+		/** Calls per request; each failed or stalled call is replaced by a fresh one. */
+		tries: number;
+		/** Last-resort cap on all calls together. */
 		totalMs: number;
 	};
 }
@@ -46,12 +53,13 @@ interface GraderRole {
 /**
  * Reviews: fast per-Prompt grading (ADR 0008). A Review settles in a few seconds, but a stalled
  * provider stream otherwise waits up to five minutes for its first event, and the Drainer reviews
- * one Prompt at a time, so the stall would hold the whole queue.
+ * one Prompt at a time, so the stall would hold the whole queue. The Codex SSE transport cannot
+ * retry inside a call once its first-event watchdog fires, so a fresh call does the retry.
  */
 const REVIEW_GRADER: GraderRole = {
 	role: "@task",
 	reasoning: "medium",
-	timeouts: { firstEventMs: 20_000, totalMs: 120_000 },
+	timeouts: { firstEventMs: 20_000, tries: 2, totalMs: 120_000 },
 };
 /** Weekly Digest: the stronger analysis (ADR 0008); long by nature, so no caps. */
 const DIGEST_GRADER: GraderRole = { role: "@advisor", reasoning: "high" };
@@ -73,33 +81,50 @@ function makeGrader(
 				strict: request.tool.strict,
 				parameters: request.tool.parameters as Tool["parameters"],
 			};
-			const signal = timeouts && AbortSignal.timeout(timeouts.totalMs);
-			const result = await completeSimple(
-				model,
-				{
-					systemPrompt: [request.system],
-					messages: [
-						{ role: "user", content: request.user, timestamp: Date.now() },
-					],
-					tools: [tool],
-				},
-				{
-					apiKey: ctx.modelRegistry.resolver(
+			const deadline = timeouts && AbortSignal.timeout(timeouts.totalMs);
+			let result: AssistantMessage | undefined;
+			let failure: unknown;
+			for (let attempt = 1; attempt <= (timeouts?.tries ?? 1); attempt++) {
+				try {
+					const response = await completeSimple(
 						model,
-						ctx.sessionManager.getSessionId(),
-					),
-					reasoning: reasoning as Effort,
-					toolChoice: { type: "tool", name: request.tool.name },
-					streamFirstEventTimeoutMs: timeouts?.firstEventMs,
-					signal,
-				},
-			);
-			if (timeouts && signal?.aborted)
-				throw new Error(
-					`no response from ${model.provider}/${model.id} in ${timeouts.totalMs / 1000} s`,
-				);
-			if (result.stopReason === "error")
-				throw new Error(result.errorMessage ?? "provider error");
+						{
+							systemPrompt: [request.system],
+							messages: [
+								{ role: "user", content: request.user, timestamp: Date.now() },
+							],
+							tools: [tool],
+						},
+						{
+							apiKey: ctx.modelRegistry.resolver(
+								model,
+								ctx.sessionManager.getSessionId(),
+							),
+							reasoning: reasoning as Effort,
+							toolChoice: { type: "tool", name: request.tool.name },
+							streamFirstEventTimeoutMs: timeouts?.firstEventMs,
+							signal: deadline,
+						},
+					);
+					if (
+						response.stopReason !== "error" &&
+						response.stopReason !== "aborted"
+					) {
+						result = response;
+						break;
+					}
+					failure = new Error(
+						response.errorMessage ?? `provider ${response.stopReason}`,
+					);
+				} catch (error) {
+					failure = error;
+				}
+				if (timeouts && deadline?.aborted)
+					throw new Error(
+						`no response from ${model.provider}/${model.id} in ${timeouts.totalMs / 1000} s`,
+					);
+			}
+			if (!result) throw failure;
 
 			const toolCall = result.content.find(
 				(content): content is ToolCall =>
