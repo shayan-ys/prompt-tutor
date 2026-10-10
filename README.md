@@ -35,9 +35,18 @@ omp reviews its own Prompts in the background. The Claude Code mod only queues P
 
 ## Set up
 
-Follow these steps in order on a new computer. Steps 4 and 5 are only for Claude Code, and step 6 is only for devdash.
+Follow these steps in order on a new computer. Steps 5 and 6 are only for Claude Code, and step 7 is only for devdash.
 
-**1. Install the omp plugin in every omp profile you use.** For the default profile:
+**1. Give omp working models in every omp profile you use.** prompt-tutor grades with each profile's `@task` model role and writes Digests with its `@advisor` role, using that profile's own provider login. Log in once per profile, for example:
+
+```sh
+omp login
+omp --profile personal login
+```
+
+Claude Code Prompts are graded by omp too, so a Claude sign-in alone is not enough.
+
+**2. Install the omp plugin in every omp profile you use.** For the default profile:
 
 ```sh
 omp plugin install github:shayan-ys/prompt-tutor
@@ -49,21 +58,28 @@ For each named profile, for example `personal`:
 omp --profile personal plugin install github:shayan-ys/prompt-tutor
 ```
 
-**2. Put the `prompt-tutor` command on your `PATH`.** Restart omp, then run this inside omp in the profile you use most:
+**3. Put the `prompt-tutor` command on your `PATH`.** The command links into a directory that must already be on your `PATH`. A new Mac has none for your user, so create `~/.local/bin` and add it (zsh shown):
+
+```sh
+mkdir -p ~/.local/bin
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+Open a new terminal and start omp from it, so omp sees the new `PATH`. Then run this inside omp in the profile you use most:
 
 ```text
 /prompt-tutor install-watcher
 ```
 
-This symlinks the installed command into `~/.local/bin` when that directory is on `PATH`. Otherwise, pass a directory already on `PATH`, for example `/prompt-tutor install-watcher ~/bin`. The command prints the link path. Check it in a new shell:
+This symlinks the installed command into `~/.local/bin`. To use another directory that is already on `PATH`, pass it, for example `/prompt-tutor install-watcher ~/bin`. The command prints the link path. Check it in a new shell:
 
 ```sh
 prompt-tutor --once
 ```
 
-**3. Write your config** at `~/.config/prompt-tutor/config.yml` (see [Configuration](#configuration)). Without a file, everything goes to one `default` Scope. For Claude Code, give each Scope a `review_profile`, or its Claude Code Prompts stay queued.
+**4. Write your config** at `~/.config/prompt-tutor/config.yml` (see [Configuration](#configuration)). Without a file, everything goes to one `default` Scope. For Claude Code, give each Scope a `review_profile`, or its Claude Code Prompts stay queued.
 
-**4. Install the Claude Code mod.** `prompt-tutor` and Bun must be on the `PATH` that Claude Code runs with (steps 1 and 2).
+**5. Install the Claude Code mod.** `prompt-tutor` and Bun must be on the `PATH` that Claude Code runs with (step 3).
 
 ```sh
 claude plugin marketplace add shayan-ys/prompt-tutor
@@ -72,7 +88,7 @@ claude plugin install prompt-tutor@prompt-tutor
 
 From a local clone, use `claude plugin marketplace add /path/to/prompt-tutor` instead of the first command. Restart any open Claude Code session: mods load when a session starts.
 
-**5. Start the Drainer in its own terminal tab** and leave it running while you use Claude Code:
+**6. Start the Drainer in its own terminal tab** and leave it running while you use Claude Code:
 
 ```sh
 prompt-tutor drain
@@ -80,7 +96,7 @@ prompt-tutor drain
 
 It prints one line per omp profile it starts, such as `draining personal: personal`. It is a long-running command, so it does not fit a devdash section; give it a terminal tab or pane of its own. Prompts you type while it is stopped wait in the queue. See [The Drainer](#the-drainer).
 
-**6. Add prompt-tutor to devdash.** Install devdash by following [its README](https://github.com/shayan-ys/devdash#install), then add this to `~/.config/devdash/config.toml`:
+**7. Add prompt-tutor to devdash.** Install devdash by following [its README](https://github.com/shayan-ys/devdash#install), then add this to `~/.config/devdash/config.toml`:
 
 ```toml
 [[integrations]]
@@ -95,7 +111,7 @@ keys = { j = "newer", k = "older", s = "scope" }
 
 If devdash shows `⚠ cannot run prompt-tutor`, use the full path of the link, for example `command = ["~/.local/bin/prompt-tutor", "--once"]`. Without devdash, run `prompt-tutor` in a terminal tab for the full Watcher.
 
-**7. Check it works.**
+**8. Check it works.**
 
 - In omp, send a Prompt with a mistake, such as `she dont know where is the file`. The footer chip shows `EN …`, then the Finding counts, and the Watcher shows the Review.
 - In Claude Code, send the same Prompt. The Watcher shows it as `queued` while no Drainer runs for its Scope, and as a Review a few seconds after `prompt-tutor drain` picks it up.
@@ -174,7 +190,14 @@ Then restart omp, Claude Code, and `prompt-tutor drain`.
 
 ## Uninstall
 
-Quit all omp sessions and stop `prompt-tutor drain` first. Before removing the Watcher command or plugin, review the data-removal dry run:
+Stop every writer first: close all Claude Code sessions, then remove the Claude Code plugin, so no Prompt is captured while data is removed:
+
+```sh
+claude plugin uninstall prompt-tutor@prompt-tutor
+claude plugin marketplace remove prompt-tutor
+```
+
+Then stop `prompt-tutor drain` and quit all omp sessions. Before removing the Watcher command or plugin, review the data-removal dry run:
 
 ```sh
 prompt-tutor --delete-data
@@ -195,12 +218,6 @@ omp --profile <p> plugin uninstall prompt-tutor
 ```
 
 For the default profile, omit `--profile <p>`.
-
-To remove the Claude Code plugin:
-
-```sh
-claude plugin uninstall prompt-tutor@prompt-tutor
-```
 
 ## How it works
 

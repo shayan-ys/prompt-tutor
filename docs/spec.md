@@ -171,7 +171,7 @@ Sources: [Ticket #9 — OSS setup: license, CI, release process, README, contrib
 - License the project MIT. Protect `main`: require pull requests and passing CI, allow squash merges only, and block bypass, force-push, and branch deletion. `main` MUST always be releasable because users upgrade from it.
 - The merge gate MUST run `tsc --noEmit`, Biome lint/format, fixture-only `bun test` (no live grader calls), and an install smoke through the real GitHub plugin path. On PRs install the PR head SHA in a throwaway `HOME`; after merges, exercise the exact unpinned install and an upgrade from the previous `main`. The smoke MUST assert `/prompt-tutor` registers, not merely that plugin loading exits successfully.
 - Support and test only the latest omp; do not claim a minimum version. Dependabot SHOULD update GitHub Actions and Bun dependencies weekly, grouped.
-- Use SemVer tags `vX.Y.Z` and Keep a Changelog. Each user-visible PR adds an `Unreleased` line. A release PR moves that section to a version heading and bumps `package.json`; after merge, tag the merge commit. A tag workflow verifies the tag matches the package version and creates the GitHub Release from that changelog section.
+- Use SemVer tags `vX.Y.Z` and Keep a Changelog. Each user-visible PR adds an `Unreleased` line. A release PR moves that section to a version heading and bumps `package.json`; after merge, tag the merge commit. A tag workflow verifies the tag matches the package version and creates the GitHub Release from that changelog section. The Claude Code plugin manifest and its marketplace entry MUST NOT set `version`: Claude Code then versions the plugin by commit, so `claude plugin update` follows `main` like the omp install does.
 
 ## Open items
 
