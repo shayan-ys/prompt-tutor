@@ -1,0 +1,17 @@
+{
+  "name": "prompt-tutor",
+  "owner": {
+    "name": "shayan-ys",
+    "url": "https://github.com/shayan-ys"
+  },
+  "metadata": {
+    "description": "prompt-tutor: capture the Prompts you type in Claude Code for review."
+  },
+  "plugins": [
+    {
+      "name": "prompt-tutor",
+      "source": "./claude-code",
+      "description": "Captures the Prompts you type in Claude Code for prompt-tutor to review. It never changes what Claude reads."
+    }
+  ]
+}

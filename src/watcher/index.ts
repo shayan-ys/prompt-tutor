@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../core/config.ts";
+import { liveDrainLock } from "../core/drain-lock.ts";
 import {
 	listMonths,
 	type ReadStats,
@@ -39,6 +40,8 @@ export type WatcherSnapshot =
 			config: Config;
 			records: PromptRecord[];
 			newerVersion: number;
+			/** Stores whose drain lock is held by a live process, read with the records. */
+			liveDrainStores: ReadonlySet<string>;
 	  }
 	| { kind: "read_error"; error: string };
 
@@ -61,6 +64,32 @@ function configKey(result: ConfigResult): string {
 
 function recordKey(record: PromptRecord): string {
 	return `${record.scope}\u0000${record.id}`;
+}
+
+/** Stores with a pending Claude Code Prompt and a live drain lock; one lock read per store, not per record. */
+async function loadLiveDrainStores(
+	config: Config,
+	records: PromptRecord[],
+): Promise<Set<string>> {
+	const scopeNames = new Set(
+		records
+			.filter(
+				(record) =>
+					record.state === "pending" && record.harness === "claude-code",
+			)
+			.map((record) => record.scope),
+	);
+	const stores = new Set(
+		config.scopes
+			.filter((scope) => scopeNames.has(scope.name))
+			.map((scope) => scope.store),
+	);
+	const live = await Promise.all(
+		[...stores].map(async (store) =>
+			(await liveDrainLock(store)) === null ? null : store,
+		),
+	);
+	return new Set(live.filter((store) => store !== null));
 }
 
 /** Read all months so j/k can navigate older Prompts, with the recent read covering concurrent month creation. */
@@ -102,11 +131,13 @@ export async function loadWatcherSnapshot(): Promise<WatcherSnapshot> {
 			recordsByKey.set(recordKey(record), record);
 	}
 
+	const records = [...recordsByKey.values()].sort(compareNewest);
 	return {
 		kind: "ready",
 		config: configResult.config,
-		records: [...recordsByKey.values()].sort(compareNewest),
+		records,
 		newerVersion: stats.newerVersion,
+		liveDrainStores: await loadLiveDrainStores(configResult.config, records),
 	};
 }
 
@@ -136,6 +167,7 @@ function renderSnapshot(
 		height,
 		now,
 		newerVersion: snapshot.newerVersion,
+		liveDrainStores: snapshot.liveDrainStores,
 	});
 }
 
@@ -297,6 +329,7 @@ export async function renderOnce(width = 80): Promise<OnceResult> {
 		width,
 		now: Date.now(),
 		newerVersion: snapshot.newerVersion,
+		liveDrainStores: snapshot.liveDrainStores,
 		embedded: true,
 		showNavigation: statePath !== undefined,
 	});
@@ -485,6 +518,22 @@ export async function startWatcher(): Promise<void> {
 				);
 				if (nextSignature !== currentDirectorySignature) {
 					await refresh();
+					return;
+				}
+			}
+			if (snapshot.kind === "ready") {
+				const captured = snapshot;
+				const live = await loadLiveDrainStores(
+					captured.config,
+					captured.records,
+				);
+				const known = captured.liveDrainStores;
+				if (
+					snapshot === captured &&
+					(live.size !== known.size || [...live].some((s) => !known.has(s)))
+				) {
+					snapshot = { ...captured, liveDrainStores: live };
+					draw();
 					return;
 				}
 			}

@@ -47,8 +47,10 @@ export interface PromptRecord {
 	/** Sortable and unique: `<UTC yyyymmddThhmmssSSS>-<6 hex>`, e.g. `20261008T141502123-a1b2c3`. */
 	id: string;
 	scope: string;
-	/** omp profile name; the unnamed profile is `default`. */
+	/** omp profile name; the unnamed profile is `default`. Claude Code records store `claude-code`. */
 	profile: string;
+	/** Harness that captured the Prompt; absent means omp. */
+	harness?: "claude-code";
 	cwd: string;
 	/** ISO 8601 UTC with milliseconds. */
 	captured_at: string;
@@ -87,6 +89,8 @@ export interface Scope {
 	when: Condition[];
 	/** Profile whose sessions may run this Scope's Digest; null = any session resolving to this Scope. */
 	digestProfile: string | null;
+	/** The only omp profile allowed to drain this Scope's Claude Code records; null = none. */
+	reviewProfile: string | null;
 }
 
 export interface Config {
@@ -138,6 +142,8 @@ export interface CaptureInput {
 	profile: string;
 	cwd: string;
 	now: Date;
+	/** Absent means omp. */
+	harness?: "claude-code";
 }
 
 export type CaptureResult =

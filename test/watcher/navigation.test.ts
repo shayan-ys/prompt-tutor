@@ -12,6 +12,7 @@ const scopes: Scope[] = [
 		store: "/tmp/work",
 		when: [],
 		digestProfile: null,
+		reviewProfile: null,
 	},
 	{
 		name: "personal",
@@ -19,6 +20,7 @@ const scopes: Scope[] = [
 		store: "/tmp/personal",
 		when: [],
 		digestProfile: null,
+		reviewProfile: null,
 	},
 ];
 

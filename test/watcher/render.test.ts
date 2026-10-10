@@ -14,6 +14,7 @@ const config: Config = {
 			store: "/tmp/prompt-tutor/work",
 			when: [],
 			digestProfile: null,
+			reviewProfile: null,
 		},
 		{
 			name: "personal",
@@ -21,6 +22,7 @@ const config: Config = {
 			store: "/tmp/prompt-tutor/personal",
 			when: [],
 			digestProfile: null,
+			reviewProfile: null,
 		},
 	],
 };
@@ -302,5 +304,75 @@ describe("Watcher frame", () => {
 		expect(output).toContain("configuration error");
 		expect(output).toContain("/tmp/config.yml");
 		expect(output).toContain("invalid YAML");
+	});
+
+	describe("pending Claude Code Prompts", () => {
+		const queued = record({
+			id: "20261008T134100000-c1c1c1",
+			profile: "claude-code",
+			harness: "claude-code",
+			state: "pending",
+			review: undefined,
+			text: "Typed in Claude Code.",
+		});
+		const older = record({
+			id: "20261008T134000000-c2c2c2",
+			captured_at: "2026-10-08T13:40:00.000Z",
+			profile: "claude-code",
+			harness: "claude-code",
+			state: "pending",
+			review: undefined,
+			text: "Older Claude Code Prompt.",
+		});
+
+		function render(live: ReadonlySet<string> | undefined): string {
+			return plain(
+				renderFrame({
+					config,
+					records: [queued, older],
+					view: "all",
+					selectedId: queued.id,
+					width: 100,
+					height: 60,
+					now: Date.parse("2026-10-08T13:41:03.000Z"),
+					newerVersion: 0,
+					liveDrainStores: live,
+				}),
+			);
+		}
+
+		test("shows queued, not the spinner, without a live drain lock", () => {
+			const output = render(new Set());
+			expect(output).toContain("queued — waiting for prompt-tutor drain");
+			expect(output).toContain("Typed in Claude Code.");
+			expect(output).not.toContain("reviewing…");
+			expect(output).toMatch(/13:40 W queued\s+Older Claude Code Prompt\./);
+			expect(render(undefined)).toContain("queued — waiting");
+		});
+
+		test("shows the spinner while a live drainer holds the Scope's store", () => {
+			const output = render(new Set([config.scopes[0]!.store]));
+			expect(output).toContain("reviewing… 3s");
+			expect(output).not.toContain("queued");
+		});
+
+		test("a pending omp Prompt keeps the spinner with no drain lock", () => {
+			const omp = record({ state: "pending", review: undefined });
+			const output = plain(
+				renderFrame({
+					config,
+					records: [omp],
+					view: "all",
+					selectedId: omp.id,
+					width: 100,
+					height: 60,
+					now: Date.parse("2026-10-08T13:41:03.000Z"),
+					newerVersion: 0,
+					liveDrainStores: new Set(),
+				}),
+			);
+			expect(output).toContain("reviewing… 3s");
+			expect(output).not.toContain("queued");
+		});
 	});
 });

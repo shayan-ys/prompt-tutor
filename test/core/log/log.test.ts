@@ -28,7 +28,14 @@ afterEach(async () => {
 });
 
 function scope(name: string, index: number, store: string): Scope {
-	return { name, index, store, when: [], digestProfile: null };
+	return {
+		name,
+		index,
+		store,
+		when: [],
+		digestProfile: null,
+		reviewProfile: null,
+	};
 }
 
 function config(scopes: Scope[], allScopesLog: string): Config {

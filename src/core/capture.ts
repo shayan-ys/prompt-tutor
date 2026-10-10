@@ -29,6 +29,7 @@ export async function capture(
 		id: newPromptId(now),
 		scope: scope.name,
 		profile,
+		...(input.harness ? { harness: input.harness } : {}),
 		cwd: input.cwd,
 		captured_at: now.toISOString(),
 		utc_offset_minutes: -now.getTimezoneOffset(),

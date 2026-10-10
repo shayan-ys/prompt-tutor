@@ -100,6 +100,8 @@ function isPromptRecord(value: unknown): value is PromptRecord {
 		return false;
 	if (value.state === "skipped" && value.skip_reason === undefined)
 		return false;
+	if (value.harness !== undefined && value.harness !== "claude-code")
+		return false;
 	if (value.failure !== undefined && typeof value.failure !== "string")
 		return false;
 	if (value.settled_at !== undefined && typeof value.settled_at !== "string")
@@ -146,6 +148,21 @@ function isPromptRecord(value: unknown): value is PromptRecord {
 	}
 	return true;
 }
+/** One record file, or null when it is missing, unreadable, invalid, or from a newer version. */
+export async function readRecord(
+	store: string,
+	record: Pick<PromptRecord, "log_month" | "id">,
+): Promise<PromptRecord | null> {
+	try {
+		const value: unknown = JSON.parse(
+			await readFile(recordPath(store, record), "utf8"),
+		);
+		return isPromptRecord(value) ? value : null;
+	} catch {
+		return null;
+	}
+}
+
 export async function readMonth(
 	store: string,
 	month: string,
