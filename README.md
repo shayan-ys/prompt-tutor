@@ -45,7 +45,7 @@ prompt-tutor
 
 The Watcher reads local records and Review logs; it does not write them. The first interactive omp session after Friday noon may build a stale weekly Digest in the background.
 
-To show the latest Review in a dashboard, `prompt-tutor --once` prints one frame and exits. It fits the `COLUMNS` and `LINES` it is given and leaves out the Watcher's key row. With `DEVDASH_STATE_FILE` set, `DEVDASH_ACTION` accepts `newer` (`j`/up), `older` (`k`/down), `scope` (`s`), `scroll-down` (`J`), and `scroll-up` (`K`); the state file preserves the view, selected Prompt, and body scroll offset between runs. The frame includes the Watcher's view tabs and follow indicator. Without a state file, any action is ignored and nothing is written. See the [devdash README setup for prompt-tutor](https://github.com/shayan-ys/devdash#example-prompt-tutor).
+To show the latest Review in a dashboard, `prompt-tutor --once` prints one frame and exits. It fits the `COLUMNS` it is given, is as tall as its content (the host scrolls it), and leaves out the Watcher's key row. With `DEVDASH_STATE_FILE` set, `DEVDASH_ACTION` accepts `newer` (`j`/up), `older` (`k`/down), and `scope` (`s`); the state file preserves the view and selected Prompt between runs. The frame includes the Watcher's view tabs and follow indicator. Without a state file, any action is ignored and nothing is written. See the [devdash README setup for prompt-tutor](https://github.com/shayan-ys/devdash#example-prompt-tutor).
 
 ## Configuration
 

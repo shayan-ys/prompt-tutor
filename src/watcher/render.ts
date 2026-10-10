@@ -41,15 +41,12 @@ export interface RenderFrameOptions {
 	view: string;
 	/** `null` follows the newest Prompt in `view`; otherwise the selected Prompt id. */
 	selectedId: string | null;
-	scroll?: number;
 	width?: number;
 	height?: number;
 	now?: number;
 	newerVersion?: number;
-	/** One frame for a host such as devdash: no title line, tabs, follow indicator, or key row. */
+	/** One frame for a host such as devdash: as tall as its content, with no title line, tabs, follow indicator, or key row. */
 	embedded?: boolean;
-	/** Reserve selected-body room and fit the trail around it for scrollable frames. */
-	scrollAware?: boolean;
 	/** Include the Watcher's view tabs and follow indicator in an embedded frame. */
 	showNavigation?: boolean;
 }
@@ -437,20 +434,9 @@ export function renderErrorFrame(
 	];
 	return fitFrame(lines, height);
 }
-interface PreparedFrame {
-	width: number;
-	height: number;
-	now: number;
-	selected: PromptRecord | undefined;
-	lines: string[];
-	body: string[];
-	older: PromptRecord[];
-	frameCapacity: number;
-	bodyRoom: number;
-	trailSeparatorRows: number;
-}
 
-function prepareFrame(options: RenderFrameOptions): PreparedFrame {
+/** Render a complete, side-effect-free Watcher frame. Interactive frames clip to `height`, body before trail. */
+export function renderFrame(options: RenderFrameOptions): string {
 	const { config } = options;
 	const width = Math.max(20, Math.min((options.width ?? 80) - 2, 100));
 	const height = options.height ?? 24;
@@ -508,114 +494,6 @@ function prepareFrame(options: RenderFrameOptions): PreparedFrame {
 		);
 	}
 
-	const older = selected
-		? inView.slice(selectedIndex + 1, selectedIndex + 4)
-		: [];
-	let body: string[] = [];
-	if (selected) {
-		const head: Segment[] = [
-			scopeTag(config, selected.scope),
-			{ text: `  ${captureTime(selected)}   ` },
-			...countBadges(selected),
-		];
-		const logScope =
-			options.view === "all"
-				? null
-				: (config.scopes.find((scope) => scope.name === options.view) ?? null);
-		const headerLink: Segment = {
-			text: "log ↗",
-			style: fg(75) + "\x1b[4m",
-			href: stubUrl(config, logScope, selected.id),
-		};
-		const renderedLink = renderSegment(headerLink);
-		const linkWidth = visibleLength(renderedLink);
-		const headLines = wrap(head, Math.max(1, width - linkWidth - 1), " ");
-		lines.push(
-			padRight(headLines[0] ?? "", width - linkWidth - 1) + renderedLink,
-			...headLines.slice(1),
-			"",
-		);
-		body = stateBody(selected, width, now);
-	}
-
-	const frameCapacity = Math.max(1, options.embedded ? height : height - 2);
-	const availableRoom = Math.max(0, frameCapacity - lines.length);
-	const scrollAware = options.scrollAware ?? false;
-	let bodyRoom = 0;
-	let trailSeparatorRows = older.length ? 3 : 0;
-	if (scrollAware) {
-		bodyRoom = Math.min(3, availableRoom);
-		const trailRoom = availableRoom - bodyRoom;
-		while (older.length && trailRoom < trailSeparatorRows + older.length) {
-			older.pop();
-		}
-		if (!older.length) trailSeparatorRows = 0;
-		while (trailRoom < trailSeparatorRows + older.length) {
-			trailSeparatorRows--;
-		}
-		bodyRoom = availableRoom - trailSeparatorRows - older.length;
-	}
-	return {
-		width,
-		height,
-		now,
-		selected,
-		lines,
-		body,
-		older,
-		frameCapacity,
-		bodyRoom: scrollAware ? bodyRoom : body.length,
-		trailSeparatorRows,
-	};
-}
-
-function maxBodyScroll(bodyLength: number, bodyRoom: number): number {
-	if (bodyRoom < 1 || bodyLength <= bodyRoom) return 0;
-	const visibleRoom = bodyRoom >= 3 ? Math.max(1, bodyRoom - 2) : bodyRoom;
-	return Math.max(0, bodyLength - visibleRoom);
-}
-
-/** Return the maximum body offset renderFrame can display for this selection and frame size. */
-export function bodyScrollRange(options: RenderFrameOptions): number {
-	const { body, bodyRoom } = prepareFrame(options);
-	return maxBodyScroll(body.length, bodyRoom);
-}
-
-function lineWord(count: number): string {
-	return count === 1 ? "line" : "lines";
-}
-
-function fitFrame(lines: string[], height: number, keyRow = true): string {
-	const available = Math.max(1, keyRow ? height - 2 : height);
-	const shown =
-		lines.length > available
-			? [
-					...lines.slice(0, available - 1),
-					`${DIM}  … ${lines.length - available + 1} more ${lineWord(lines.length - available + 1)}${RESET}`,
-				]
-			: lines;
-	if (!keyRow) return shown.join("\n");
-	return [
-		...shown,
-		"",
-		`${DIM}  j/k prompts  J/K scroll  s scope  q quit${RESET}`,
-	].join("\n");
-}
-
-/** Render a complete, side-effect-free Watcher frame. */
-export function renderFrame(options: RenderFrameOptions): string {
-	const prepared = prepareFrame(options);
-	const {
-		width,
-		height,
-		now,
-		selected,
-		lines,
-		body,
-		older,
-		bodyRoom,
-		trailSeparatorRows,
-	} = prepared;
 	if (!selected) {
 		lines.push(
 			...wrap(
@@ -632,36 +510,58 @@ export function renderFrame(options: RenderFrameOptions): string {
 				"  ",
 			),
 		);
-		return fitFrame(lines, height, !options.embedded);
+		return fitFrame(lines, height, options.embedded);
 	}
-
-	let scroll = Math.max(0, Math.floor(options.scroll ?? 0));
-	const maxScroll = maxBodyScroll(body.length, bodyRoom);
-	scroll = Math.min(scroll, maxScroll);
-	if (body.length > bodyRoom) {
-		if (bodyRoom < 3) {
-			lines.push(...body.slice(scroll, scroll + bodyRoom));
-		} else {
-			const above = scroll > 0;
-			const visibleCount = bodyRoom - (above ? 1 : 0) - 1;
-			const visible = body.slice(scroll, scroll + visibleCount);
-			if (above)
-				lines.push(`${DIM}  … ${scroll} ${lineWord(scroll)} above${RESET}`);
-			lines.push(...visible);
-			const below = body.length - scroll - visible.length;
-			if (below > 0)
-				lines.push(`${DIM}  … ${below} more ${lineWord(below)}${RESET}`);
-		}
-	} else {
-		lines.push(...body);
-	}
+	const head: Segment[] = [
+		scopeTag(config, selected.scope),
+		{ text: `  ${captureTime(selected)}   ` },
+		...countBadges(selected),
+	];
+	const logScope =
+		options.view === "all"
+			? null
+			: (config.scopes.find((scope) => scope.name === options.view) ?? null);
+	const headerLink: Segment = {
+		text: "log ↗",
+		style: fg(75) + "\x1b[4m",
+		href: stubUrl(config, logScope, selected.id),
+	};
+	const renderedLink = renderSegment(headerLink);
+	const linkWidth = visibleLength(renderedLink);
+	const headLines = wrap(head, Math.max(1, width - linkWidth - 1), " ");
+	lines.push(
+		padRight(headLines[0] ?? "", width - linkWidth - 1) + renderedLink,
+		...headLines.slice(1),
+		"",
+		...stateBody(selected, width, now),
+	);
+	const older = inView.slice(selectedIndex + 1, selectedIndex + 4);
 	if (older.length) {
-		if (trailSeparatorRows >= 2) lines.push("", "");
-		if (trailSeparatorRows >= 3)
-			lines.push(
-				` ${fg(238)}earlier ${"┄".repeat(Math.max(0, width - 10))}${RESET}`,
-			);
+		lines.push(
+			"",
+			"",
+			` ${fg(238)}earlier ${"┄".repeat(Math.max(0, width - 10))}${RESET}`,
+		);
 		for (const record of older) lines.push(trailLine(record, width, now));
 	}
-	return fitFrame(lines, height, !options.embedded);
+	return fitFrame(lines, height, options.embedded);
+}
+
+function lineWord(count: number): string {
+	return count === 1 ? "line" : "lines";
+}
+
+function fitFrame(lines: string[], height: number, embedded = false): string {
+	if (embedded) return lines.join("\n");
+	const available = Math.max(1, height - 2);
+	const shown =
+		lines.length > available
+			? [
+					...lines.slice(0, available - 1),
+					`${DIM}  … ${lines.length - available + 1} more ${lineWord(lines.length - available + 1)}${RESET}`,
+				]
+			: lines;
+	return [...shown, "", `${DIM}  j/k prompts  s scope  q quit${RESET}`].join(
+		"\n",
+	);
 }

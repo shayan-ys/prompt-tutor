@@ -82,10 +82,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 		return;
 	}
 	if (args.includes("--once")) {
-		// Piped output has no terminal size; a host such as devdash passes its room in COLUMNS and LINES.
+		// Piped output has no terminal size; a host such as devdash passes its width in COLUMNS.
+		// The frame is as tall as its content: the host scrolls it.
 		const width = process.stdout.columns ?? sizeFromEnv("COLUMNS") ?? 80;
-		const height = process.stdout.rows ?? sizeFromEnv("LINES") ?? 24;
-		const result = await renderOnce(width, height);
+		const result = await renderOnce(width);
 		if (result.ok) {
 			process.stdout.write(`${result.frame}\n`);
 		} else {
