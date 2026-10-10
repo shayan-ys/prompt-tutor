@@ -5,7 +5,11 @@ export function preprocess(raw: string): {
 	wordCount: number;
 	skip: SkipReason | null;
 } {
-	let text = raw.replace(/^\/\S+\s*/u, "");
+	// Claude Code puts harness notes such as the worktree notice into the submitted text.
+	let text = raw
+		.replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/gu, "")
+		.trimStart()
+		.replace(/^\/\S+\s*/u, "");
 	text = text.replace(/```[\s\S]*?(?:```|$)/gu, "[code]").trim();
 	const countableText = text.replace(
 		/(?:https?:\/\/|ftp:\/\/|www\.)[^\s<>"'`]+/giu,
