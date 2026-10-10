@@ -298,22 +298,47 @@ describe("prompt-tutor dashboard state", () => {
 		}
 	});
 
-	test("an unknown action exits without changing the state file", async () => {
+	for (const action of ["sideways", "scroll-up", "scroll-down"]) {
+		test(`unknown action ${action} exits without changing the state file`, async () => {
+			const fixture = await makeFixture();
+			const statePath = join(fixture.root, "state.json");
+			const original = '{"version":1,"view":"work","selected":"old"}\n';
+			try {
+				await writeFile(statePath, original);
+				const output = runOnce(
+					childEnvironment(fixture, {
+						DEVDASH_STATE_FILE: statePath,
+						DEVDASH_ACTION: action,
+					}),
+				);
+				expect(output.status).toBe(1);
+				expect(output.stdout).toBe("");
+				expect(output.stderr).toContain("unknown DEVDASH_ACTION");
+				expect(await readFile(statePath, "utf8")).toBe(original);
+			} finally {
+				await rm(fixture.root, { recursive: true, force: true });
+			}
+		});
+	}
+
+	test("a legacy state file with a scroll field keeps its view and selection", async () => {
 		const fixture = await makeFixture();
 		const statePath = join(fixture.root, "state.json");
-		const original = '{"version":1,"view":"work","selected":"old"}\n';
 		try {
-			await writeFile(statePath, original);
-			const output = runOnce(
-				childEnvironment(fixture, {
-					DEVDASH_STATE_FILE: statePath,
-					DEVDASH_ACTION: "sideways",
-				}),
+			await writeFile(
+				statePath,
+				'{"version":1,"view":"personal","selected":"20261009T110000000-a1b2c3","scroll":"bogus","latest":false}\n',
 			);
-			expect(output.status).toBe(1);
-			expect(output.stdout).toBe("");
-			expect(output.stderr).toContain("unknown DEVDASH_ACTION");
-			expect(await readFile(statePath, "utf8")).toBe(original);
+			const output = runOnce(
+				childEnvironment(fixture, { DEVDASH_STATE_FILE: statePath }),
+			);
+			expect(output.status).toBe(0);
+			expect(plain(output.stdout)).toContain("Middle fixture Prompt.");
+			expect(JSON.parse(await readFile(statePath, "utf8"))).toEqual({
+				version: 1,
+				view: "personal",
+				selected: "20261009T110000000-a1b2c3",
+			});
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
 		}
