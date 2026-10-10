@@ -101,6 +101,57 @@ describe("Watcher frame", () => {
 		expect(output).not.toContain("Subject agreement.");
 	});
 
+	test("marks only the changed words inside a multi-word Finding", () => {
+		const text = "Find the omp conversation that were shipped.";
+		const phrase = record({
+			text,
+			review: {
+				findings: [
+					{
+						quote: "the omp conversation",
+						fix: "the OMP conversation",
+						category: "spelling",
+						why: "Product name.",
+						kind: "capitalization",
+						start: 5,
+						end: 25,
+					},
+					{
+						quote: "were shipped",
+						fix: "have been shipped",
+						category: "grammar",
+						why: "Tense.",
+						kind: "tense",
+						start: 31,
+						end: 43,
+					},
+				],
+				rewrite: "Find the OMP conversation that have been shipped.",
+				tip: null,
+			},
+		});
+		const raw = renderFrame({
+			config,
+			records: [phrase],
+			view: "all",
+			selectedId: phrase.id,
+			width: 100,
+			height: 60,
+			now: Date.parse("2026-10-08T13:41:03.000Z"),
+			newerVersion: 0,
+		});
+		const styled = (code: string) =>
+			[...raw.matchAll(new RegExp(`${code}([^\\x1b]*)`, "g"))]
+				.map((match) => (match[1] ?? "").trim())
+				.filter(Boolean);
+		expect(styled("\\x1b\\[38;5;203m\\x1b\\[9m")).toEqual(["omp", "were"]);
+		expect(styled("\\x1b\\[38;5;114m\\x1b\\[1m")).toEqual([
+			"OMP",
+			"have",
+			"been",
+		]);
+	});
+
 	test("renders a clean Prompt with a check and no Review Tip", () => {
 		const clean = record({
 			id: "clean",

@@ -330,10 +330,7 @@ function rewriteDiff(record: PromptRecord): DiffToken[] {
 				rewrite.slice(rewriteOffset, fixStart),
 			),
 		);
-		append([
-			{ text: finding.quote, operation: "delete" },
-			{ text: finding.fix, operation: "insert" },
-		]);
+		append(diffRegion(finding.quote, finding.fix));
 		promptOffset = finding.end;
 		rewriteOffset = fixStart + finding.fix.length;
 	}
