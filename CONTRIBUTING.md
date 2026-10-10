@@ -21,6 +21,6 @@ This runs TypeScript, Biome, and the fixture-only Bun test suite. Tests must not
 - Add a user-visible change under `Unreleased` in `CHANGELOG.md`.
 - Update an ADR when changing a settled architectural decision; keep domain terms in `GLOSSARY.md`.
 - Keep fixtures synthetic and redact Prompt text from diagnostic output.
-- Run `bun run check` before opening a pull request. The CI workflow also smoke-installs the GitHub plugin and verifies `/prompt-tutor`.
+- Run `bun run check` before opening a pull request. If you changed `claude-code/`, also run `claude plugin test claude-code`. The CI workflow runs both, validates the Claude Code marketplace and plugin, and smoke-installs the GitHub plugin and verifies `/prompt-tutor`.
 
 Issues labelled `wayfinder:*` are planning issues, not implementation tasks.
