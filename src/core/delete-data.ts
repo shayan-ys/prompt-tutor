@@ -58,9 +58,11 @@ async function planDeletions(
 			}
 		}
 		const digestPath = join(scope.store, "digest.html");
-		if (await pathExists(digestPath)) {
-			files.push(digestPath);
-			removalSet.add(digestPath);
+		for (const path of [digestPath, join(scope.store, "drain.lock")]) {
+			if (await pathExists(path)) {
+				files.push(path);
+				removalSet.add(path);
+			}
 		}
 		if (await pathExists(scope.store)) {
 			const remaining = (await directoryEntries(scope.store)).filter(

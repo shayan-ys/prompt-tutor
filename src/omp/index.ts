@@ -11,6 +11,7 @@ import type {
 import {
 	capture,
 	chipText,
+	drainQueue,
 	dueDigests,
 	loadConfig,
 	pruneExpiredMonths,
@@ -186,8 +187,28 @@ export default function promptTutor(pi: ExtensionAPI): void {
 		scopeErrorNotified = true;
 		notifySafely(ctx, message, "warning");
 	};
+	// Drain mode (ADR 0011): one loop for the process lifetime, started by `prompt-tutor drain`.
+	let drain: AbortController | null = null;
+
+	pi.on("session_shutdown", () => {
+		drain?.abort();
+		drain = null;
+	});
 
 	pi.on("session_start", (_event, ctx) => {
+		if (process.env.PROMPT_TUTOR_DRAIN === "1" && !drain) {
+			drain = new AbortController();
+			// Started directly, not via schedule(): the loop waits on its own process timers,
+			// which ctx.setTimeout would unref and clear on session_shutdown.
+			void drainQueue({
+				profile: profile(),
+				grader: makeGrader(ctx, REVIEW_GRADER),
+				log: (line) => {
+					process.stderr.write(`prompt-tutor drain: ${line}\n`);
+				},
+				signal: drain.signal,
+			});
+		}
 		scopeErrorNotified = false;
 		const now = new Date();
 		schedule(ctx, async () => {

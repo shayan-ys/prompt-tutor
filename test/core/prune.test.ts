@@ -18,6 +18,7 @@ test("prunes expired Review log months and repairs oldest kept pages", async () 
 				store: join(root, "work"),
 				when: [],
 				digestProfile: null,
+				reviewProfile: null,
 			},
 			{
 				name: "personal",
@@ -25,6 +26,7 @@ test("prunes expired Review log months and repairs oldest kept pages", async () 
 				store: join(root, "personal"),
 				when: [],
 				digestProfile: null,
+				reviewProfile: null,
 			},
 		];
 		const config: Config = {

@@ -1,11 +1,11 @@
 # prompt-tutor
 
-A language tutor for the prompts a person types into a coding agent. It reviews each prompt's English after the fact and summarises recurring patterns, without touching the agent session.
+A language tutor for the prompts a person types into a coding agent (omp or Claude Code). It reviews each prompt's English after the fact and summarises recurring patterns, without touching the agent session.
 
 ## Language
 
 **Prompt**:
-One message a person types into an interactive, main-agent session, captured for review.
+One message a person types into an interactive, main-agent omp session, or into the Claude Code composer, captured for review.
 _Avoid_: message, input, query
 
 **Review**:
@@ -43,3 +43,7 @@ _Avoid_: viewer, dashboard, monitor
 **Review log**:
 The browsable record of Reviews, one page per month, for one Scope or for all Scopes together, where each Review has its own link.
 _Avoid_: history, report, feed
+
+**Drainer**:
+The explicitly started process that reviews queued Claude Code Prompts with a profile's grader.
+_Avoid_: daemon, worker, queue runner

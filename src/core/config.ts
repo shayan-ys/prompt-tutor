@@ -59,6 +59,7 @@ function defaultConfig(env: Env): Config {
 				store: resolve(base, "default"),
 				when: [],
 				digestProfile: null,
+				reviewProfile: null,
 			},
 		],
 		allScopesLog: resolve(base, "all", "log"),
@@ -135,7 +136,11 @@ export function parseConfig(
 		if (!isObject(value))
 			return configError(`scopes[${index}] must be an object`, sourcePath);
 		for (const key of Object.keys(value)) {
-			if (!["name", "when", "store", "digest_profile"].includes(key)) {
+			if (
+				!["name", "when", "store", "digest_profile", "review_profile"].includes(
+					key,
+				)
+			) {
 				return configError(
 					`unknown key in scopes[${index}]: ${key}`,
 					sourcePath,
@@ -248,7 +253,20 @@ export function parseConfig(
 			);
 			digestProfile = profiles.length === 1 ? profiles[0].profile! : null;
 		}
-		scopes.push({ name, index, store, when, digestProfile });
+		let reviewProfile: string | null = null;
+		if (value.review_profile !== undefined && value.review_profile !== null) {
+			if (
+				typeof value.review_profile !== "string" ||
+				value.review_profile.trim().length === 0
+			) {
+				return configError(
+					`scopes[${index}].review_profile must be a non-empty string or null`,
+					sourcePath,
+				);
+			}
+			reviewProfile = value.review_profile;
+		}
+		scopes.push({ name, index, store, when, digestProfile, reviewProfile });
 	}
 
 	let allScopesLog = resolve(base, "all", "log");

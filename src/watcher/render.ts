@@ -49,6 +49,26 @@ export interface RenderFrameOptions {
 	embedded?: boolean;
 	/** Include the Watcher's view tabs and follow indicator in an embedded frame. */
 	showNavigation?: boolean;
+	/** Stores whose drain lock is held by a live process; a pending Claude Code Prompt elsewhere is queued, not being reviewed. */
+	liveDrainStores?: ReadonlySet<string>;
+}
+
+/** True for a pending Claude Code Prompt that no live drainer is working on. */
+type QueuedTest = (record: PromptRecord) => boolean;
+
+function queuedTest(
+	config: Config,
+	liveDrainStores: ReadonlySet<string> = new Set(),
+): QueuedTest {
+	const storeByScope = new Map(
+		config.scopes.map((scope) => [scope.name, scope.store]),
+	);
+	return (record) => {
+		if (record.state !== "pending" || record.harness !== "claude-code")
+			return false;
+		const store = storeByScope.get(record.scope);
+		return store === undefined || !liveDrainStores.has(store);
+	};
 }
 
 function safeText(text: string): string {
@@ -187,8 +207,11 @@ function categoryStatus(
 	record: PromptRecord,
 	dimmed: boolean,
 	now: number,
+	isQueued: QueuedTest,
 ): Segment[] {
 	const review = record.review;
+	if (isQueued(record))
+		return [{ text: "queued", style: `${dimmed ? DIM : ""}${fg(244)}` }];
 	if (record.state === "pending") {
 		const frame = Math.floor(now / 125) % SPINNER.length;
 		return [
@@ -209,7 +232,12 @@ function categoryStatus(
 	}));
 }
 
-function trailLine(record: PromptRecord, width: number, now: number): string {
+function trailLine(
+	record: PromptRecord,
+	width: number,
+	now: number,
+	isQueued: QueuedTest,
+): string {
 	const scope =
 		record.scope === "work"
 			? "W"
@@ -217,7 +245,7 @@ function trailLine(record: PromptRecord, width: number, now: number): string {
 				? "P"
 				: (Array.from(record.scope)[0]?.toLocaleUpperCase() ?? "?");
 	const prefix = `  ${captureTime(record)} ${scope} `;
-	const status = categoryStatus(record, true, now);
+	const status = categoryStatus(record, true, now, isQueued);
 	const statusWidth = status.reduce(
 		(total, segment) => total + codePointLength(segment.text),
 		0,
@@ -349,7 +377,27 @@ function diffSegments(record: PromptRecord): Segment[] {
 	}));
 }
 
-function stateBody(record: PromptRecord, width: number, now: number): string[] {
+function stateBody(
+	record: PromptRecord,
+	width: number,
+	now: number,
+	isQueued: QueuedTest,
+): string[] {
+	if (isQueued(record)) {
+		return [
+			...wrap(
+				[
+					{
+						text: "queued — waiting for prompt-tutor drain",
+						style: fg(244) + BOLD,
+					},
+				],
+				width,
+				"  ",
+			),
+			...wrap([{ text: record.text, style: DIM }], width, "  "),
+		];
+	}
 	if (record.state === "pending") {
 		const elapsed = Math.max(
 			0,
@@ -438,6 +486,7 @@ export function renderFrame(options: RenderFrameOptions): string {
 	const width = Math.max(20, Math.min((options.width ?? 80) - 2, 100));
 	const height = options.height ?? 24;
 	const now = options.now ?? Date.now();
+	const isQueued = queuedTest(options.config, options.liveDrainStores);
 	const sortedRecords = sortNewestFirst(options.records);
 	const inView =
 		options.view === "all"
@@ -530,7 +579,7 @@ export function renderFrame(options: RenderFrameOptions): string {
 		padRight(headLines[0] ?? "", width - linkWidth - 1) + renderedLink,
 		...headLines.slice(1),
 		"",
-		...stateBody(selected, width, now),
+		...stateBody(selected, width, now, isQueued),
 	);
 	const older = inView.slice(selectedIndex + 1, selectedIndex + 4);
 	if (older.length) {
@@ -539,7 +588,8 @@ export function renderFrame(options: RenderFrameOptions): string {
 			"",
 			` ${fg(238)}earlier ${"┄".repeat(Math.max(0, width - 10))}${RESET}`,
 		);
-		for (const record of older) lines.push(trailLine(record, width, now));
+		for (const record of older)
+			lines.push(trailLine(record, width, now, isQueued));
 	}
 	return fitFrame(lines, height, options.embedded);
 }

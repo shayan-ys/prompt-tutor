@@ -31,10 +31,12 @@ const runDigest = mock(async () => ({
 	week: "2026-10-09",
 }));
 const pruneExpiredMonths = mock(async () => {});
+const drainQueue = mock(async () => {});
 
 mock.module("../../src/core/index.ts", () => ({
 	capture,
 	chipText,
+	drainQueue,
 	dueDigests,
 	loadConfig,
 	pruneExpiredMonths,

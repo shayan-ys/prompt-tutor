@@ -10,6 +10,15 @@ export {
 	renderDigest,
 	runDigest,
 } from "./digest/index.ts";
+export { type DrainOptions, drainQueue, queuedRecords } from "./drain.ts";
+export {
+	acquireDrainLock,
+	type DrainLock,
+	drainLockPath,
+	liveDrainLock,
+	readDrainLock,
+	releaseDrainLockSync,
+} from "./drain-lock.ts";
 export { writeFileAtomic } from "./fsx.ts";
 export {
 	GRADER_PROMPT,

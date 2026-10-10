@@ -79,7 +79,14 @@ function scopeFor(
 	name = "test",
 	digestProfile: string | null = "test",
 ): Scope {
-	return { name, index: 0, store, when: [], digestProfile };
+	return {
+		name,
+		index: 0,
+		store,
+		when: [],
+		digestProfile,
+		reviewProfile: null,
+	};
 }
 
 function configFor(scope: Scope, root: string): Config {
