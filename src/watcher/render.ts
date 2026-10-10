@@ -293,6 +293,44 @@ function diffRegion(before: string, after: string): DiffToken[] {
 	return output;
 }
 
+const HAS_WORD = /[\p{L}\p{M}\p{N}_]/u;
+
+/**
+ * Merge edits that are separated only by spaces or punctuation into one
+ * deletion followed by one insertion, so a reordered phrase reads as a single
+ * replacement instead of alternating struck and bold words.
+ */
+function groupHunks(diff: DiffToken[]): DiffToken[] {
+	const output: DiffToken[] = [];
+	let deleted = "";
+	let inserted = "";
+	let gap = "";
+	const flush = () => {
+		if (deleted) output.push({ text: deleted, operation: "delete" });
+		if (inserted) output.push({ text: inserted, operation: "insert" });
+		if (gap) output.push({ text: gap, operation: "same" });
+		deleted = inserted = gap = "";
+	};
+	for (const token of diff) {
+		if (token.operation === "same") {
+			if ((deleted || inserted) && !gap && !HAS_WORD.test(token.text)) {
+				gap = token.text;
+				continue;
+			}
+			flush();
+			output.push({ ...token });
+			continue;
+		}
+		deleted += gap;
+		inserted += gap;
+		gap = "";
+		if (token.operation === "delete") deleted += token.text;
+		else inserted += token.text;
+	}
+	flush();
+	return output;
+}
+
 /** Anchor Finding spans to their exact fixes before diffing surrounding prose. */
 function rewriteDiff(record: PromptRecord): DiffToken[] {
 	const review = record.review;
@@ -317,10 +355,11 @@ function rewriteDiff(record: PromptRecord): DiffToken[] {
 			finding.end < finding.start ||
 			record.text.slice(finding.start, finding.end) !== finding.quote
 		) {
-			return diffRegion(record.text, rewrite);
+			return groupHunks(diffRegion(record.text, rewrite));
 		}
 		const fixStart = rewrite.indexOf(finding.fix, rewriteOffset);
-		if (fixStart < rewriteOffset) return diffRegion(record.text, rewrite);
+		if (fixStart < rewriteOffset)
+			return groupHunks(diffRegion(record.text, rewrite));
 		append(
 			diffRegion(
 				record.text.slice(promptOffset, finding.start),
@@ -334,7 +373,7 @@ function rewriteDiff(record: PromptRecord): DiffToken[] {
 	append(
 		diffRegion(record.text.slice(promptOffset), rewrite.slice(rewriteOffset)),
 	);
-	return output;
+	return groupHunks(output);
 }
 
 function diffSegments(record: PromptRecord): Segment[] {
