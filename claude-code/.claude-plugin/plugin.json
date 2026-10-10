@@ -1,0 +1,8 @@
+{
+  "name": "prompt-tutor",
+  "description": "Captures the Prompts you type in Claude Code for prompt-tutor to review. It never changes what Claude reads.",
+  "author": { "name": "shayan-ys" },
+  "homepage": "https://github.com/shayan-ys/prompt-tutor",
+  "repository": "https://github.com/shayan-ys/prompt-tutor",
+  "license": "MIT"
+}

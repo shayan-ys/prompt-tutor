@@ -1,0 +1,378 @@
+import { describe, expect, test } from "bun:test";
+import type { Config, PromptRecord } from "../../src/core/types.ts";
+import { renderErrorFrame, renderFrame } from "../../src/watcher/render.ts";
+
+const config: Config = {
+	path: null,
+	allScopesLog: "/tmp/prompt-tutor/all/log",
+	keepMonths: null,
+	explanationLanguage: "English",
+	scopes: [
+		{
+			name: "work",
+			index: 0,
+			store: "/tmp/prompt-tutor/work",
+			when: [],
+			digestProfile: null,
+			reviewProfile: null,
+		},
+		{
+			name: "personal",
+			index: 1,
+			store: "/tmp/prompt-tutor/personal",
+			when: [],
+			digestProfile: null,
+			reviewProfile: null,
+		},
+	],
+};
+
+function record(overrides: Partial<PromptRecord> = {}): PromptRecord {
+	return {
+		version: 1,
+		id: "20261008T134100000-a1b2c3",
+		scope: "work",
+		profile: "default",
+		cwd: "/tmp",
+		captured_at: "2026-10-08T13:41:00.000Z",
+		utc_offset_minutes: 0,
+		log_month: "2026-10",
+		text: "The build are broken.",
+		word_count: 4,
+		state: "reviewed",
+		review: {
+			findings: [
+				{
+					quote: "are",
+					fix: "is",
+					category: "grammar",
+					why: "Subject agreement.",
+					kind: "agreement",
+					start: 10,
+					end: 13,
+				},
+			],
+			rewrite: "The build is broken.",
+			tip: "Match the verb to its subject.",
+		},
+		...overrides,
+	};
+}
+
+function plain(text: string): string {
+	return text
+		.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "")
+		.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function frame(
+	selected: PromptRecord,
+	records = [selected],
+	newerVersion = 0,
+): string {
+	return plain(
+		renderFrame({
+			config,
+			records,
+			view: "all",
+			selectedId: selected.id,
+			width: 100,
+			height: 60,
+			now: Date.parse("2026-10-08T13:41:03.000Z"),
+			newerVersion,
+		}),
+	);
+}
+
+describe("Watcher frame", () => {
+	test("renders the anchored Rewrite diff, category badge, Tip, and Review-log link in order", () => {
+		const output = frame(record());
+		expect(output).toContain("grammar 1");
+		expect(output).toContain("log ↗");
+		expect(output).toContain("The build");
+		expect(output).toContain("are");
+		expect(output).toContain("is");
+		expect(output).toContain("Match the verb to its subject.");
+		expect(output.indexOf("The build")).toBeLessThan(
+			output.indexOf("Match the verb to its subject."),
+		);
+		expect(output).not.toContain("Subject agreement.");
+	});
+
+	test("marks only the changed words inside a multi-word Finding", () => {
+		const text = "Find the omp conversation that were shipped.";
+		const phrase = record({
+			text,
+			review: {
+				findings: [
+					{
+						quote: "the omp conversation",
+						fix: "the OMP conversation",
+						category: "spelling",
+						why: "Product name.",
+						kind: "capitalization",
+						start: 5,
+						end: 25,
+					},
+					{
+						quote: "were shipped",
+						fix: "have been shipped",
+						category: "grammar",
+						why: "Tense.",
+						kind: "tense",
+						start: 31,
+						end: 43,
+					},
+				],
+				rewrite: "Find the OMP conversation that have been shipped.",
+				tip: null,
+			},
+		});
+		const raw = renderFrame({
+			config,
+			records: [phrase],
+			view: "all",
+			selectedId: phrase.id,
+			width: 100,
+			height: 60,
+			now: Date.parse("2026-10-08T13:41:03.000Z"),
+			newerVersion: 0,
+		});
+		const styled = (code: string) =>
+			[...raw.matchAll(new RegExp(`${code}([^\\x1b]*)`, "g"))]
+				.map((match) => (match[1] ?? "").trim())
+				.filter(Boolean);
+		expect(styled("\\x1b\\[38;5;203m\\x1b\\[9m")).toEqual(["omp", "were"]);
+		expect(styled("\\x1b\\[38;5;114m\\x1b\\[1m")).toEqual([
+			"OMP",
+			"have",
+			"been",
+		]);
+	});
+
+	test("renders a clean Prompt with a check and no Review Tip", () => {
+		const clean = record({
+			id: "clean",
+			text: "Please add the receipt to the folder.",
+			state: "reviewed",
+			review: { findings: [], rewrite: null, tip: null },
+		});
+		const output = frame(clean);
+		expect(output).toContain("✓");
+		expect(output).toContain("Please add the receipt to the folder.");
+		expect(output).not.toContain("Match the verb to its subject.");
+	});
+
+	test("renders a pending spinner, elapsed time, and dimmed Prompt", () => {
+		const pending = record({
+			state: "pending",
+			captured_at: "2026-10-08T13:41:00.000Z",
+		});
+		delete pending.review;
+		const output = frame(pending);
+		expect(output).toContain("reviewing… 3s");
+		expect(output).toContain("The build are broken.");
+	});
+
+	test("renders a failed Review badge and reason", () => {
+		const failed = record({
+			state: "failed",
+			failure: "invalid output after retry",
+		});
+		delete failed.review;
+		const output = frame(failed);
+		expect(output).toContain("EN ?");
+		expect(output).toContain("Review failed: invalid output after retry");
+		expect(output).toContain("The build are broken.");
+	});
+
+	test("renders skipped word-count status", () => {
+		const skipped = record({
+			state: "skipped",
+			skip_reason: "too_long",
+			word_count: 601,
+		});
+		delete skipped.review;
+		const output = frame(skipped);
+		expect(output).toContain("skipped: too long (601 words)");
+		expect(output).toContain("The build are broken.");
+	});
+
+	test("shows the three nearest older Prompts newest-first, after the focused Tip", () => {
+		const selected = record({
+			id: "newest",
+			captured_at: "2026-10-08T14:00:00.000Z",
+			text: "The selected Prompt.",
+		});
+		const olderNewest = record({
+			id: "older-1",
+			scope: "personal",
+			captured_at: "2026-10-08T13:00:00.000Z",
+			text: "The first earlier Prompt.",
+		});
+		const olderMiddle = record({
+			id: "older-2",
+			captured_at: "2026-10-08T12:00:00.000Z",
+			text: "The second earlier Prompt.",
+		});
+		const olderOldest = record({
+			id: "older-3",
+			scope: "personal",
+			captured_at: "2026-10-08T11:00:00.000Z",
+			text: "The third earlier Prompt.",
+		});
+		const outsideTrail = record({
+			id: "older-4",
+			captured_at: "2026-10-08T10:00:00.000Z",
+			text: "Outside the trail.",
+		});
+		const output = frame(selected, [
+			selected,
+			olderNewest,
+			olderMiddle,
+			olderOldest,
+			outsideTrail,
+		]);
+		const tipAt = output.indexOf("Match the verb to its subject.");
+		const earlierAt = output.indexOf("earlier");
+		const newestAt = output.indexOf("The first earlier Prompt.");
+		const middleAt = output.indexOf("The second earlier Prompt.");
+		const oldestAt = output.indexOf("The third earlier Prompt.");
+		expect(tipAt).toBeGreaterThan(-1);
+		expect(tipAt).toBeLessThan(earlierAt);
+		expect(earlierAt).toBeLessThan(newestAt);
+		expect(newestAt).toBeLessThan(middleAt);
+		expect(middleAt).toBeLessThan(oldestAt);
+		expect(output).not.toContain("Outside the trail.");
+	});
+
+	test("shows the newer-format upgrade warning", () => {
+		const output = frame(record(), [record()], 1);
+		expect(output).toContain("written by a newer prompt-tutor — upgrade");
+	});
+
+	test("interactive frames clip the trail before the Review body; embedded frames never clip", () => {
+		const selected = record({
+			id: "selected",
+			captured_at: "2026-10-08T14:00:00.000Z",
+			review: {
+				findings: record().review?.findings ?? [],
+				rewrite: null,
+				tip: Array.from(
+					{ length: 20 },
+					(_, index) =>
+						`Selected Review line ${String(index + 1).padStart(2, "0")}`,
+				).join("\n"),
+			},
+		});
+		const records = [
+			selected,
+			...["first", "second", "final"].map((name, index) =>
+				record({
+					id: `older-${name}`,
+					captured_at: `2026-10-08T${String(13 - index).padStart(2, "0")}:00:00.000Z`,
+					text: `Older ${name} Prompt.`,
+				}),
+			),
+		];
+		const options = {
+			config,
+			records,
+			view: "all",
+			selectedId: selected.id,
+			width: 80,
+			height: 12,
+			showNavigation: true,
+		};
+		const interactive = plain(renderFrame(options));
+		expect(interactive.split("\n").length).toBeLessThanOrEqual(12);
+		expect(interactive).toContain("Selected Review line 01");
+		expect(interactive).toMatch(/… \d+ more lines/);
+		expect(interactive).not.toContain("Older first Prompt.");
+		expect(interactive).toContain("j/k prompts  s scope  q quit");
+
+		const embedded = plain(renderFrame({ ...options, embedded: true }));
+		expect(embedded).toContain("Selected Review line 20");
+		expect(embedded).toContain("Older final Prompt.");
+		expect(embedded).not.toMatch(/… \d+ more lines?/);
+	});
+
+	test("renders config errors with their path and explanation", () => {
+		const output = plain(
+			renderErrorFrame("invalid YAML", "/tmp/config.yml", 80, 24),
+		);
+		expect(output).toContain("configuration error");
+		expect(output).toContain("/tmp/config.yml");
+		expect(output).toContain("invalid YAML");
+	});
+
+	describe("pending Claude Code Prompts", () => {
+		const queued = record({
+			id: "20261008T134100000-c1c1c1",
+			profile: "claude-code",
+			harness: "claude-code",
+			state: "pending",
+			review: undefined,
+			text: "Typed in Claude Code.",
+		});
+		const older = record({
+			id: "20261008T134000000-c2c2c2",
+			captured_at: "2026-10-08T13:40:00.000Z",
+			profile: "claude-code",
+			harness: "claude-code",
+			state: "pending",
+			review: undefined,
+			text: "Older Claude Code Prompt.",
+		});
+
+		function render(live: ReadonlySet<string> | undefined): string {
+			return plain(
+				renderFrame({
+					config,
+					records: [queued, older],
+					view: "all",
+					selectedId: queued.id,
+					width: 100,
+					height: 60,
+					now: Date.parse("2026-10-08T13:41:03.000Z"),
+					newerVersion: 0,
+					liveDrainStores: live,
+				}),
+			);
+		}
+
+		test("shows queued, not the spinner, without a live drain lock", () => {
+			const output = render(new Set());
+			expect(output).toContain("queued — waiting for prompt-tutor drain");
+			expect(output).toContain("Typed in Claude Code.");
+			expect(output).not.toContain("reviewing…");
+			expect(output).toMatch(/13:40 W queued\s+Older Claude Code Prompt\./);
+			expect(render(undefined)).toContain("queued — waiting");
+		});
+
+		test("shows the spinner while a live drainer holds the Scope's store", () => {
+			const output = render(new Set([config.scopes[0]!.store]));
+			expect(output).toContain("reviewing… 3s");
+			expect(output).not.toContain("queued");
+		});
+
+		test("a pending omp Prompt keeps the spinner with no drain lock", () => {
+			const omp = record({ state: "pending", review: undefined });
+			const output = plain(
+				renderFrame({
+					config,
+					records: [omp],
+					view: "all",
+					selectedId: omp.id,
+					width: 100,
+					height: 60,
+					now: Date.parse("2026-10-08T13:41:03.000Z"),
+					newerVersion: 0,
+					liveDrainStores: new Set(),
+				}),
+			);
+			expect(output).toContain("reviewing… 3s");
+			expect(output).not.toContain("queued");
+		});
+	});
+});
