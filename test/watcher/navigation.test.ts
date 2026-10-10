@@ -48,128 +48,65 @@ describe("Watcher navigation", () => {
 	test("newer returns the top and immediately-older selections to following latest", () => {
 		expect(
 			applyWatcherAction(
-				{ view: "all", selectedId: "newest", scroll: 3 },
+				{ view: "all", selectedId: "newest" },
 				"newer",
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: null, scroll: 0 });
+		).toEqual({ view: "all", selectedId: null });
 		expect(
 			applyWatcherAction(
-				{ view: "all", selectedId: "middle", scroll: 3 },
+				{ view: "all", selectedId: "middle" },
 				"newer",
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: null, scroll: 0 });
+		).toEqual({ view: "all", selectedId: null });
 	});
 
 	test("older at the end stays on the oldest Prompt", () => {
 		expect(
 			applyWatcherAction(
-				{ view: "all", selectedId: "oldest", scroll: 2 },
+				{ view: "all", selectedId: "oldest" },
 				"older",
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: "oldest", scroll: 2 });
-	});
-
-	test("scroll actions move one line and clamp at both ends", () => {
-		const selection = { view: "all", selectedId: "middle", scroll: 1 };
-		expect(
-			applyWatcherAction(selection, "scroll-down", scopes, records, 2),
-		).toEqual({ ...selection, scroll: 2 });
-		expect(
-			applyWatcherAction(
-				{ ...selection, scroll: 2 },
-				"scroll-down",
-				scopes,
-				records,
-				2,
-			),
-		).toEqual({ ...selection, scroll: 2 });
-		expect(
-			applyWatcherAction(selection, "scroll-up", scopes, records, 2),
-		).toEqual({ ...selection, scroll: 0 });
-		expect(
-			applyWatcherAction(
-				{ ...selection, scroll: 0 },
-				"scroll-up",
-				scopes,
-				records,
-				2,
-			),
-		).toEqual({ ...selection, scroll: 0 });
-	});
-	test("scroll-up clamps a stale scroll before applying the key", () => {
-		expect(
-			applyWatcherAction(
-				{ view: "all", selectedId: "middle", scroll: 5 },
-				"scroll-up",
-				scopes,
-				records,
-				2,
-			),
-		).toEqual({ view: "all", selectedId: "middle", scroll: 1 });
-	});
-
-	test("selection and view changes reset scrolling", () => {
-		expect(
-			applyWatcherAction(
-				{ view: "all", selectedId: "middle", scroll: 2 },
-				"older",
-				scopes,
-				records,
-			),
-		).toEqual({ view: "all", selectedId: "oldest", scroll: 0 });
-		expect(
-			applyWatcherAction(
-				{ view: "all", selectedId: "middle", scroll: 2 },
-				"scope",
-				scopes,
-				records,
-			),
-		).toEqual({ view: "work", selectedId: null, scroll: 0 });
+		).toEqual({ view: "all", selectedId: "oldest" });
 	});
 
 	test("scope cycles through configured views and resets selection", () => {
 		let selection = {
 			view: "all",
 			selectedId: "oldest" as string | null,
-			scroll: 3,
 		};
 		selection = applyWatcherAction(selection, "scope", scopes, records);
-		expect(selection).toEqual({ view: "work", selectedId: null, scroll: 0 });
+		expect(selection).toEqual({ view: "work", selectedId: null });
 		selection = applyWatcherAction(
-			{ view: selection.view, selectedId: "newest", scroll: 2 },
+			{ view: selection.view, selectedId: "newest" },
 			"scope",
 			scopes,
 			records,
 		);
-		expect(selection).toEqual({
-			view: "personal",
-			selectedId: null,
-			scroll: 0,
-		});
+		expect(selection).toEqual({ view: "personal", selectedId: null });
 		selection = applyWatcherAction(selection, "scope", scopes, records);
-		expect(selection).toEqual({ view: "all", selectedId: null, scroll: 0 });
+		expect(selection).toEqual({ view: "all", selectedId: null });
 	});
 
-	test("a selection that leaves its view follows latest and resets scrolling", () => {
+	test("a selection that leaves its view follows latest", () => {
 		expect(
 			reconcileWatcherSelection(
-				{ view: "work", selectedId: "middle", scroll: 2 },
+				{ view: "work", selectedId: "middle" },
 				scopes,
 				records,
 			),
-		).toEqual({ view: "work", selectedId: null, scroll: 0 });
+		).toEqual({ view: "work", selectedId: null });
 		expect(
 			reconcileWatcherSelection(
-				{ view: "retired", selectedId: "oldest", scroll: 2 },
+				{ view: "retired", selectedId: "oldest" },
 				scopes,
 				records,
 			),
-		).toEqual({ view: "all", selectedId: "oldest", scroll: 0 });
+		).toEqual({ view: "all", selectedId: "oldest" });
 	});
 });

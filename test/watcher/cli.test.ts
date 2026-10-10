@@ -80,12 +80,10 @@ describe("prompt-tutor --once", () => {
 					XDG_CONFIG_HOME: configHome,
 					XDG_DATA_HOME: dataHome,
 					COLUMNS: "40",
-					LINES: "12",
 				},
 				encoding: "utf8",
 			});
 			const rows = stripTerminal(narrow.stdout).trimEnd().split("\n");
-			expect(rows.length).toBeLessThanOrEqual(12);
 			for (const row of rows) expect(row.length).toBeLessThanOrEqual(40);
 			expect(await readFile(promptPath, "utf8")).toBe(promptText);
 			expect(await Bun.file(join(store, "log")).exists()).toBe(false);
