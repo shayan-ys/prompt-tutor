@@ -148,6 +148,47 @@ describe("Watcher frame", () => {
 		]);
 	});
 
+	test("shows a reordered phrase as one deletion and one insertion", () => {
+		const text = "Too many questions you're asking me. I think so.";
+		const phrase = record({
+			text,
+			review: {
+				findings: [
+					{
+						quote: "Too many questions you're asking me",
+						fix: "You're asking me too many questions",
+						category: "grammar",
+						why: "Word order.",
+						kind: "word-order",
+						start: 0,
+						end: 35,
+					},
+				],
+				rewrite: "You're asking me too many questions. I think so.",
+				tip: null,
+			},
+		});
+		const raw = renderFrame({
+			config,
+			records: [phrase],
+			view: "all",
+			selectedId: phrase.id,
+			width: 120,
+			height: 60,
+			now: Date.parse("2026-10-08T13:41:03.000Z"),
+			newerVersion: 0,
+		});
+		const spans = [
+			...raw.matchAll(/\x1b\[38;5;(203|114)m\x1b\[(?:9|1)m([^\x1b]*)/g),
+		]
+			.map(([, colour, text]) => [colour === "203" ? "-" : "+", text!.trim()])
+			.filter(([, text]) => text);
+		expect(spans.map(([sign, text]) => `${sign}${text}`).join(" ")).toBe(
+			"-Too -many -questions -you're -asking -me " +
+				"+You're +asking +me +too +many +questions",
+		);
+	});
+
 	test("renders a clean Prompt with a check and no Review Tip", () => {
 		const clean = record({
 			id: "clean",
