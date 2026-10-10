@@ -106,10 +106,11 @@ command = ["prompt-tutor", "--once"]
 position = "bottom"
 max_rows = 100
 watch = ["~/.local/share/prompt-tutor", "~/.config/prompt-tutor"]
+interval = 1
 keys = { j = "newer", k = "older", s = "scope" }
 ```
 
-If devdash shows `⚠ cannot run prompt-tutor`, use the full path of the link, for example `command = ["~/.local/bin/prompt-tutor", "--once"]`. Without devdash, run `prompt-tutor` in a terminal tab for the full Watcher.
+The section updates when prompt-tutor data changes; `interval = 1` reruns it every second so a pending Review's `reviewing… Ns` timer keeps counting. If devdash shows `⚠ cannot run prompt-tutor`, use the full path of the link, for example `command = ["~/.local/bin/prompt-tutor", "--once"]`. Without devdash, run `prompt-tutor` in a terminal tab for the full Watcher.
 
 **8. Check it works.**
 
