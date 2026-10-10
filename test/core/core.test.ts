@@ -215,6 +215,19 @@ describe("prompt preprocessing", () => {
 		);
 	});
 
+	test("drops harness system-reminder blocks before the slash token", () => {
+		const reminder =
+			"<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n\n";
+		expect(preprocess(`${reminder}/review she dont know`).text).toBe(
+			"she dont know",
+		);
+		expect(preprocess(`${reminder}hi`).text).toBe("hi");
+		expect(preprocess(reminder).skip).toBe("nothing_to_review");
+		expect(preprocess("keep <system-reminder> and this").text).toBe(
+			"keep <system-reminder> and this",
+		);
+	});
+
 	test("omits URLs only from counting and applies both skip reasons", () => {
 		expect(preprocess("/command https://example.test/path")).toEqual({
 			text: "https://example.test/path",
