@@ -21,4 +21,4 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - The Watcher shows a Claude Code Prompt as queued until a Drainer holds its Scope's `drain.lock`.
 
 ### Fixed
-- A stalled model request no longer holds a Review, or the Drainer's queue behind it, for minutes: each grader request is abandoned after 60 s and tried once more, and the Prompt is marked failed if the second try also stalls.
+- A stalled model request no longer holds a Review, or the Drainer's queue behind it, for minutes: Reviews wait 20 s for the first stream event before omp reconnects or falls back, and give up after 120 s, marking the Prompt failed. Digests keep the provider defaults.
