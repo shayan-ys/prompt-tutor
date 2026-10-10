@@ -18,6 +18,18 @@ jobs:
         run: bun install
       - name: TypeScript, Biome, and tests
         run: bun run check
+      - name: Install latest Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate the Claude Code marketplace and plugin, and run the mod's tests
+        env:
+          HOME: ${{ runner.temp }}/prompt-tutor-claude-home
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME"
+          claude --version
+          claude plugin validate .
+          claude plugin validate claude-code
+          claude plugin test claude-code
       - name: Install latest omp
         run: |
           brew tap can1357/tap
