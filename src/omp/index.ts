@@ -2,7 +2,12 @@ import { lstat, mkdir, readlink, realpath, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { completeSimple, type Tool, type ToolCall } from "@oh-my-pi/pi-ai";
+import {
+	type AssistantMessage,
+	completeSimple,
+	type Tool,
+	type ToolCall,
+} from "@oh-my-pi/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -40,6 +45,12 @@ interface GraderRole {
 const REVIEW_GRADER: GraderRole = { role: "@task", reasoning: "medium" };
 /** Weekly Digest: the stronger analysis (ADR 0008). */
 const DIGEST_GRADER: GraderRole = { role: "@advisor", reasoning: "high" };
+/**
+ * A Review settles in a few seconds. A stalled provider stream can otherwise hang for minutes,
+ * and the Drainer reviews one Prompt at a time, so the stall would hold the whole queue.
+ */
+const GRADER_TIMEOUT_MS = 60_000;
+const GRADER_TRIES = 2;
 
 // omp maps canonical @oh-my-pi imports to its host-bundled packages at runtime.
 function makeGrader(
@@ -58,24 +69,40 @@ function makeGrader(
 				strict: request.tool.strict,
 				parameters: request.tool.parameters as Tool["parameters"],
 			};
-			const result = await completeSimple(
-				model,
-				{
-					systemPrompt: [request.system],
-					messages: [
-						{ role: "user", content: request.user, timestamp: Date.now() },
-					],
-					tools: [tool],
-				},
-				{
-					apiKey: ctx.modelRegistry.resolver(
+			let result: AssistantMessage | undefined;
+			for (let attempt = 1; attempt <= GRADER_TRIES && !result; attempt++) {
+				const signal = AbortSignal.timeout(GRADER_TIMEOUT_MS);
+				try {
+					const response = await completeSimple(
 						model,
-						ctx.sessionManager.getSessionId(),
-					),
-					reasoning: reasoning as Effort,
-					toolChoice: { type: "tool", name: request.tool.name },
-				},
-			);
+						{
+							systemPrompt: [request.system],
+							messages: [
+								{ role: "user", content: request.user, timestamp: Date.now() },
+							],
+							tools: [tool],
+						},
+						{
+							apiKey: ctx.modelRegistry.resolver(
+								model,
+								ctx.sessionManager.getSessionId(),
+							),
+							reasoning: reasoning as Effort,
+							toolChoice: { type: "tool", name: request.tool.name },
+							signal,
+						},
+					);
+					if (!signal.aborted) result = response;
+				} catch (error) {
+					if (!signal.aborted) throw error;
+				}
+			}
+			if (!result)
+				throw new Error(
+					`no response from ${model.provider}/${model.id} in ${GRADER_TRIES} tries of ${GRADER_TIMEOUT_MS / 1000} s`,
+				);
+			if (result.stopReason === "error")
+				throw new Error(result.errorMessage ?? "provider error");
 
 			const toolCall = result.content.find(
 				(content): content is ToolCall =>

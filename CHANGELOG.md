@@ -19,3 +19,6 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Claude Code support: a Claude Code mod captures typed Prompts, and `prompt-tutor capture --harness claude-code` queues them. Preprocessing drops the `<system-reminder>` blocks Claude Code adds to submitted text. Install it with `claude plugin marketplace add shayan-ys/prompt-tutor`.
 - `prompt-tutor drain` starts the Drainer, which reviews queued Claude Code Prompts in a headless omp process for each configured `review_profile`, using that profile's `@task`. A Scope's new `review_profile` setting has no default; without it, its Claude Code Prompts stay queued.
 - The Watcher shows a Claude Code Prompt as queued until a Drainer holds its Scope's `drain.lock`.
+
+### Fixed
+- A stalled model request no longer holds a Review, or the Drainer's queue behind it, for minutes: each grader request is abandoned after 60 s and tried once more, and the Prompt is marked failed if the second try also stalls.
