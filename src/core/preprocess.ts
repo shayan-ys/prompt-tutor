@@ -7,7 +7,7 @@ export function preprocess(raw: string): {
 } {
 	// Claude Code puts harness notes such as the worktree notice into the submitted text.
 	let text = raw
-		.replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/gu, "")
+		.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gu, "")
 		.trimStart()
 		.replace(/^\/\S+\s*/u, "");
 	text = text.replace(/```[\s\S]*?(?:```|$)/gu, "[code]").trim();

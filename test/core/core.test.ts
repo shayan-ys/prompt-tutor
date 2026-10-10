@@ -223,6 +223,9 @@ describe("prompt preprocessing", () => {
 		);
 		expect(preprocess(`${reminder}hi`).text).toBe("hi");
 		expect(preprocess(reminder).skip).toBe("nothing_to_review");
+		expect(preprocess("keep <system-reminder> and this").text).toBe(
+			"keep <system-reminder> and this",
+		);
 	});
 
 	test("omits URLs only from counting and applies both skip reasons", () => {
