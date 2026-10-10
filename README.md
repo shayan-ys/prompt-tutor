@@ -17,45 +17,92 @@ A static Digest screenshot is not included yet; this repository has no rendered 
 ## Requirements
 
 - The latest omp release. Claude Code Prompts are also reviewed by omp, so omp is needed even if you only use Claude Code.
-- Bun 1.3 or newer (also used by omp's plugin manager, the Watcher, and the Claude Code mod).
-- Optional, for Claude Code: Claude Code 2.1.287 or later.
+- Bun 1.3 or newer (`curl -fsSL https://bun.sh/install | bash`). omp's plugin manager, the Watcher, and the Claude Code mod all run on it.
+- Optional: Claude Code 2.1.287 or later, to review the Prompts you type there.
+- Optional: [devdash](https://github.com/shayan-ys/devdash), to show the latest Review in a dashboard.
 
-## Install
+## How the pieces fit
 
-Install prompt-tutor separately in each omp profile you use:
+```mermaid
+flowchart LR
+  O[omp session] -->|captures and reviews| S[(Scope store)]
+  C[Claude Code mod] -->|captures only| S
+  D[prompt-tutor drain] -->|reviews queued Claude Code Prompts| S
+  S --> W[Watcher / devdash / Review log]
+```
+
+omp reviews its own Prompts in the background. The Claude Code mod only queues Prompts; `prompt-tutor drain` reviews them with omp's models while you keep it running.
+
+## Set up
+
+Follow these steps in order on a new computer. Steps 4 and 5 are only for Claude Code, and step 6 is only for devdash.
+
+**1. Install the omp plugin in every omp profile you use.** For the default profile:
 
 ```sh
 omp plugin install github:shayan-ys/prompt-tutor
 ```
 
-Restart omp after installing. In the profile you use most, run:
+For each named profile, for example `personal`:
+
+```sh
+omp --profile personal plugin install github:shayan-ys/prompt-tutor
+```
+
+**2. Put the `prompt-tutor` command on your `PATH`.** Restart omp, then run this inside omp in the profile you use most:
 
 ```text
 /prompt-tutor install-watcher
 ```
 
-This symlinks the installed Watcher into `~/.local/bin` when that directory is on `PATH`. Otherwise, pass a directory already on `PATH`, for example `/prompt-tutor install-watcher ~/bin`. The command prints the link path. For several profiles, run the install command in your main profile so the single Watcher link points to that profile's copy.
+This symlinks the installed command into `~/.local/bin` when that directory is on `PATH`. Otherwise, pass a directory already on `PATH`, for example `/prompt-tutor install-watcher ~/bin`. The command prints the link path. Check it in a new shell:
 
-## Claude Code
+```sh
+prompt-tutor --once
+```
 
-prompt-tutor also reviews the Prompts you type into Claude Code. A small Claude Code mod only captures each Prompt. It makes no model call and adds nothing to Claude's context. The Prompts wait in the Scope store until you start the Drainer (see Usage), which reviews them with omp.
+**3. Write your config** at `~/.config/prompt-tutor/config.yml` (see [Configuration](#configuration)). Without a file, everything goes to one `default` Scope. For Claude Code, give each Scope a `review_profile`, or its Claude Code Prompts stay queued.
 
-Requirements: Claude Code 2.1.287 or later, and `prompt-tutor` and Bun on the `PATH` that Claude Code runs with. Run `/prompt-tutor install-watcher` in omp first (see Install) to put `prompt-tutor` on your `PATH`.
-
-Install the plugin:
+**4. Install the Claude Code mod.** `prompt-tutor` and Bun must be on the `PATH` that Claude Code runs with (steps 1 and 2).
 
 ```sh
 claude plugin marketplace add shayan-ys/prompt-tutor
 claude plugin install prompt-tutor@prompt-tutor
 ```
 
-From a local clone, use `claude plugin marketplace add /path/to/prompt-tutor` instead of the first command.
+From a local clone, use `claude plugin marketplace add /path/to/prompt-tutor` instead of the first command. Restart any open Claude Code session: mods load when a session starts.
 
-The mod captures only Prompts you type in the Claude Code composer. Remote Control, `claude -p`, the Agent SDK, `/loop`, schedules, and other plugins are not captured. If your organization turns mods off, captures stop without a message.
+**5. Start the Drainer in its own terminal tab** and leave it running while you use Claude Code:
+
+```sh
+prompt-tutor drain
+```
+
+It prints one line per omp profile it starts, such as `draining personal: personal`. It is a long-running command, so it does not fit a devdash section; give it a terminal tab or pane of its own. Prompts you type while it is stopped wait in the queue. See [The Drainer](#the-drainer).
+
+**6. Add prompt-tutor to devdash.** Install devdash by following [its README](https://github.com/shayan-ys/devdash#install), then add this to `~/.config/devdash/config.toml`:
+
+```toml
+[[integrations]]
+name = "prompt-tutor"
+title = "PROMPT TUTOR"
+command = ["prompt-tutor", "--once"]
+position = "bottom"
+max_rows = 100
+watch = ["~/.local/share/prompt-tutor", "~/.config/prompt-tutor"]
+keys = { j = "newer", k = "older", s = "scope" }
+```
+
+If devdash shows `⚠ cannot run prompt-tutor`, use the full path of the link, for example `command = ["~/.local/bin/prompt-tutor", "--once"]`. Without devdash, run `prompt-tutor` in a terminal tab for the full Watcher.
+
+**7. Check it works.**
+
+- In omp, send a Prompt with a mistake, such as `she dont know where is the file`. The footer chip shows `EN …`, then the Finding counts, and the Watcher shows the Review.
+- In Claude Code, send the same Prompt. The Watcher shows it as `queued` while no Drainer runs for its Scope, and as a Review a few seconds after `prompt-tutor drain` picks it up.
 
 ## Usage
 
-Type Prompts normally in omp. Reviews run in the background and the footer chip updates when the newest Review settles. Start a terminal tab and run:
+Type Prompts normally in omp. Reviews run in the background and the footer chip updates when the newest Review settles. For the full Watcher, start a terminal tab and run:
 
 ```sh
 prompt-tutor
@@ -63,19 +110,21 @@ prompt-tutor
 
 The Watcher reads local records and Review logs; it does not write them. The first interactive omp session after Friday noon may build a stale weekly Digest in the background.
 
-Claude Code Prompts are queued, not reviewed, until you run the Drainer in a terminal:
+### Claude Code
 
-```sh
-prompt-tutor drain
-```
+The Claude Code mod only captures each Prompt. It makes no model call and adds nothing to Claude's context. It captures only Prompts you type in the Claude Code composer; Remote Control, `claude -p`, the Agent SDK, `/loop`, schedules, and other plugins are not captured. If your organization turns mods off, captures stop without a message.
 
-Keep it running while you work. There is one Drainer per Scope: a second `prompt-tutor drain` skips Scopes that are already being drained. It starts one headless omp process for each `review_profile` in your config and reviews the queued Prompts of that profile's Scopes, so prompt-tutor must be installed in every omp profile that a `review_profile` names. If a profile's omp has not started draining after 30 seconds, the command prints a warning. The startup lines (`draining <profile>: <scopes>`, `already draining …`) go to stdout; per-Prompt progress goes to stderr as `[<profile>] prompt-tutor drain: …`. Press Ctrl-C to stop it; Prompts that are not yet reviewed stay queued. The Watcher shows a Claude Code Prompt as queued while no Drainer is running for its Scope.
+### The Drainer
 
-The command reads your config once, when it starts. Changes to a Scope that an already running profile drains are picked up. If you add a Scope with a new `review_profile`, restart `prompt-tutor drain`.
+There is one Drainer per Scope: a second `prompt-tutor drain` skips Scopes that are already being drained. It starts one headless omp process for each `review_profile` in your config and reviews the queued Prompts of that profile's Scopes, so prompt-tutor must be installed in every omp profile that a `review_profile` names. If a profile's omp has not started draining after 30 seconds, the command prints a warning. The startup lines (`draining <profile>: <scopes>`, `already draining …`) go to stdout; per-Prompt progress goes to stderr as `[<profile>] prompt-tutor drain: …`. Press Ctrl-C to stop it; Prompts that are not yet reviewed stay queued. The Watcher shows a Claude Code Prompt as queued while no Drainer is running for its Scope.
+
+The command reads your config once, when it starts. Changes to a Scope that an already running profile drains are picked up. If you add a Scope with a new `review_profile`, restart `prompt-tutor drain`. After you upgrade prompt-tutor, restart it too.
 
 If it prints `already draining … (pid N, <path>)` and pid N is not a prompt-tutor Drainer (the pid was reused after a crash or reboot), delete the `drain.lock` file at that path and run it again.
 
-To show the latest Review in a dashboard, `prompt-tutor --once` prints one frame and exits. It fits the `COLUMNS` it is given, is as tall as its content (the host scrolls it), and leaves out the Watcher's key row. With `DEVDASH_STATE_FILE` set, `DEVDASH_ACTION` accepts `newer` (`j`/up), `older` (`k`/down), and `scope` (`s`); the state file preserves the view and selected Prompt between runs. The frame includes the Watcher's view tabs and follow indicator. Without a state file, any action is ignored and nothing is written. See the [devdash README setup for prompt-tutor](https://github.com/shayan-ys/devdash#example-prompt-tutor).
+### Dashboards
+
+`prompt-tutor --once` prints one frame and exits. It fits the `COLUMNS` it is given, is as tall as its content (the host scrolls it), and leaves out the Watcher's key row. With `DEVDASH_STATE_FILE` set, `DEVDASH_ACTION` accepts `newer` (`j`/up), `older` (`k`/down), and `scope` (`s`); the state file preserves the view and selected Prompt between runs. The frame includes the Watcher's view tabs and follow indicator. Without a state file, any action is ignored and nothing is written. See the [devdash prompt-tutor example](https://github.com/shayan-ys/devdash#example-prompt-tutor).
 
 ## Configuration
 
@@ -101,18 +150,27 @@ scopes:
 ## Privacy
 
 1. **Provider exposure:** each omp Prompt's text is sent to the session profile's `@task` model for its Review (ADR 0008). Each Claude Code Prompt's text is sent to the `@task` model of its Scope's `review_profile` (ADR 0011); Claude Code and your Claude account receive nothing extra from prompt-tutor. Each week's Findings, with the sentences they came from, are sent to the Scope's Digest profile's `@advisor` model (ADR 0007). Scope selection does not change which provider receives a Prompt; the reviewing profile's `@task` setting does.
-2. **Storage:** by default, each Scope's files are under `$XDG_DATA_HOME/prompt-tutor/<scope>/` (normally `~/.local/share/prompt-tutor/<scope>/`); a configured `store` may choose another path. With two or more Scopes, the all-Scopes Review log is stored at `$XDG_DATA_HOME/prompt-tutor/all/log/` unless `all_scopes_log` overrides it. Files are written with mode `0600`. Prompt records contain only preprocessed text: a leading slash token is removed and fenced code is replaced with `[code]`. `keep_months` optionally prunes old Review log months; `prompt-tutor --delete-data` lists the known data paths, and adding `--yes` removes them.
+2. **Storage:** by default, each Scope's files are under `$XDG_DATA_HOME/prompt-tutor/<scope>/` (normally `~/.local/share/prompt-tutor/<scope>/`); a configured `store` may choose another path. With two or more Scopes, the all-Scopes Review log is stored at `$XDG_DATA_HOME/prompt-tutor/all/log/` unless `all_scopes_log` overrides it. Files are written with mode `0600`. Prompt records contain only preprocessed text: `<system-reminder>` blocks that Claude Code adds are removed, a leading slash token is removed, and fenced code is replaced with `[code]`. `keep_months` optionally prunes old Review log months; `prompt-tutor --delete-data` lists the known data paths, and adding `--yes` removes them.
 3. **Scope separation:** Scopes keep work and personal Prompt records, Review logs, and Digests apart. They do not isolate or change providers. `explanation_language` changes only the language of explanations, not what is sent.
 
 ## Upgrade
 
-Upgrade each profile separately, then restart omp:
+Upgrade each omp profile separately:
 
 ```sh
 omp --profile <p> plugin upgrade prompt-tutor
 ```
 
 For the default profile, omit `--profile <p>`. Users track `main`; SemVer tags are optional pins, not the normal upgrade route.
+
+Update the Claude Code mod:
+
+```sh
+claude plugin marketplace update prompt-tutor
+claude plugin update prompt-tutor@prompt-tutor
+```
+
+Then restart omp, Claude Code, and `prompt-tutor drain`.
 
 ## Uninstall
 

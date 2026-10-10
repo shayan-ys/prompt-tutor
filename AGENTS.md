@@ -1,6 +1,6 @@
 # prompt-tutor
 
-The design is charted as a wayfinder map in GitHub Issues (label `wayfinder:map`); the build-from spec is `docs/spec.md`. The v0 build lives on the `build/v0` branch.
+The design is charted as a wayfinder map in GitHub Issues (label `wayfinder:map`); the build-from spec is `docs/spec.md`. Users install from `main` (ADR 0005), so work branches off `main` and merges back through a pull request with passing CI.
 
 ## Agent skills
 
