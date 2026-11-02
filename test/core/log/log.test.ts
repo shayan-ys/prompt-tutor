@@ -262,6 +262,57 @@ test("renders replaced words deletion-first with spacing and preserves unchanged
 	);
 });
 
+test("highlights only the words a Finding changes, not its unchanged context", () => {
+	const personal = scope("personal", 0, "/personal");
+	const html = renderMonthPage({
+		month: "2026-10",
+		records: [
+			record({
+				text: "we're in UI, and which simply 'the' was missing",
+				state: "reviewed",
+				review: {
+					findings: [
+						{
+							quote: "in UI",
+							fix: "in the UI",
+							category: "grammar",
+							why: "Missing article.",
+							kind: "missing article",
+							start: 6,
+							end: 11,
+						},
+						{
+							quote: "which simply 'the' was missing",
+							fix: "where only 'the' was missing",
+							category: "grammar",
+							why: "Relative clause.",
+							kind: "relative clause",
+							start: 17,
+							end: 47,
+						},
+					],
+					rewrite: "we're in the UI, and where only 'the' was missing",
+					tip: null,
+				},
+				grader,
+			}),
+		],
+		scopes: [personal],
+		allScopes: false,
+	});
+
+	expect(html).toContain(
+		`we&#39;re in <mark class="grammar gap" title="Fix: in the UI"></mark>UI, and <mark class="grammar" title="Fix: where only &#39;the&#39; was missing">which simply</mark> &#39;the&#39; was missing`,
+	);
+	expect(html).toContain('<span class="change">in <ins>the </ins>UI</span>');
+	expect(html).toContain(
+		'<span class="change"><del>which</del> <ins>where</ins> <del>simply</del> <ins>only</ins> &#39;the&#39; was missing</span>',
+	);
+	expect(html).toContain(
+		'<pre class="rewrite">we&#39;re in <ins>the </ins>UI, and <del>which</del> <ins>where</ins> <del>simply</del> <ins>only</ins> &#39;the&#39; was missing</pre>',
+	);
+});
+
 test("renders pending, clean, skipped, failed, and detailed reviewed states", () => {
 	const personal = scope("personal", 0, "/personal");
 	const details = record({

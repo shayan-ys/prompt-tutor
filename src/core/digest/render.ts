@@ -1,3 +1,4 @@
+import { findingDiffHtml } from "../log/render.ts";
 import type { Category } from "../types.ts";
 import type {
 	DigestArchive,
@@ -50,13 +51,11 @@ function percent(value: number, total: number): number {
 }
 
 function findingExample(finding: DigestFinding, showWhy = false): string {
-	const quote = escapeHtml(finding.quote);
-	const fix = escapeHtml(finding.fix);
 	const context = `<details class="sentence"><summary>Show sentence</summary><p>${escapeHtml(finding.sentence)}</p></details>`;
 	const why = showWhy
 		? `<div class="mute why">${escapeHtml(finding.why)}</div>`
 		: "";
-	return `<div class="example"><span class="ex"><del>${quote}</del> → <ins>${fix}</ins></span>${context}${why}</div>`;
+	return `<div class="example"><span class="ex">${findingDiffHtml(finding)}</span>${context}${why}</div>`;
 }
 
 function categoryChips(categories: Category[]): string {

@@ -1,3 +1,4 @@
+import { rewriteDiff } from "../core/diff.ts";
 import { stubUrl } from "../core/log/index.ts";
 import type { Category, Config, PromptRecord, Scope } from "../core/types.ts";
 
@@ -31,8 +32,6 @@ interface Segment {
 	style?: string;
 	href?: string;
 }
-
-type DiffToken = { text: string; operation: "same" | "delete" | "insert" };
 
 export interface RenderFrameOptions {
 	config: Config;
@@ -258,111 +257,6 @@ function trailLine(
 	);
 	const prompt = clip(displayPrompt(record), promptWidth);
 	return `${DIM}${prefix}${RESET}${statusText}${gap}${DIM}${safeText(prompt)}${RESET}`;
-}
-
-function tokens(text: string): string[] {
-	return (
-		text.match(
-			/[\p{L}\p{M}\p{N}_]+(?:['’][\p{L}\p{M}\p{N}_]+)*|[^\p{L}\p{M}\p{N}_]+/gu,
-		) ?? []
-	);
-}
-
-/** Token-level LCS for an unanchored region; punctuation and word boundaries stay independent. */
-function diffRegion(before: string, after: string): DiffToken[] {
-	if (before === after)
-		return before ? [{ text: before, operation: "same" }] : [];
-	const oldTokens = tokens(before);
-	const newTokens = tokens(after);
-	const columns = newTokens.length + 1;
-	const table = new Uint16Array((oldTokens.length + 1) * columns);
-	for (let oldIndex = oldTokens.length - 1; oldIndex >= 0; oldIndex--) {
-		const row = oldIndex * columns;
-		const nextRow = (oldIndex + 1) * columns;
-		for (let newIndex = newTokens.length - 1; newIndex >= 0; newIndex--) {
-			const cell = row + newIndex;
-			table[cell] =
-				oldTokens[oldIndex] === newTokens[newIndex]
-					? table[nextRow + newIndex + 1]! + 1
-					: Math.max(table[nextRow + newIndex]!, table[cell + 1]!);
-		}
-	}
-	const output: DiffToken[] = [];
-	const push = (text: string, operation: DiffToken["operation"]) => {
-		if (!text) return;
-		const last = output[output.length - 1];
-		if (last?.operation === operation) last.text += text;
-		else output.push({ text, operation });
-	};
-	let oldIndex = 0;
-	let newIndex = 0;
-	while (oldIndex < oldTokens.length || newIndex < newTokens.length) {
-		if (
-			oldIndex < oldTokens.length &&
-			newIndex < newTokens.length &&
-			oldTokens[oldIndex] === newTokens[newIndex]
-		) {
-			push(oldTokens[oldIndex]!, "same");
-			oldIndex++;
-			newIndex++;
-		} else if (
-			oldIndex < oldTokens.length &&
-			(newIndex >= newTokens.length ||
-				table[(oldIndex + 1) * columns + newIndex]! >=
-					table[oldIndex * columns + newIndex + 1]!)
-		) {
-			push(oldTokens[oldIndex]!, "delete");
-			oldIndex++;
-		} else {
-			push(newTokens[newIndex]!, "insert");
-			newIndex++;
-		}
-	}
-	return output;
-}
-
-/** Anchor Finding spans to their exact fixes before diffing surrounding prose. */
-function rewriteDiff(record: PromptRecord): DiffToken[] {
-	const review = record.review;
-	const rewrite = review?.rewrite;
-	if (!review || rewrite === null || rewrite === undefined) return [];
-	const findings = [...review.findings].sort(
-		(left, right) => left.start - right.start,
-	);
-	let promptOffset = 0;
-	let rewriteOffset = 0;
-	const output: DiffToken[] = [];
-	const append = (part: DiffToken[]) => {
-		for (const token of part) {
-			const last = output[output.length - 1];
-			if (last?.operation === token.operation) last.text += token.text;
-			else output.push({ ...token });
-		}
-	};
-	for (const finding of findings) {
-		if (
-			finding.start < promptOffset ||
-			finding.end < finding.start ||
-			record.text.slice(finding.start, finding.end) !== finding.quote
-		) {
-			return diffRegion(record.text, rewrite);
-		}
-		const fixStart = rewrite.indexOf(finding.fix, rewriteOffset);
-		if (fixStart < rewriteOffset) return diffRegion(record.text, rewrite);
-		append(
-			diffRegion(
-				record.text.slice(promptOffset, finding.start),
-				rewrite.slice(rewriteOffset, fixStart),
-			),
-		);
-		append(diffRegion(finding.quote, finding.fix));
-		promptOffset = finding.end;
-		rewriteOffset = fixStart + finding.fix.length;
-	}
-	append(
-		diffRegion(record.text.slice(promptOffset), rewrite.slice(rewriteOffset)),
-	);
-	return output;
 }
 
 function diffSegments(record: PromptRecord): Segment[] {
