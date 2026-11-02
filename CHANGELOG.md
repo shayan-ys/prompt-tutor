@@ -22,3 +22,4 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Fixed
 - A stalled model request no longer holds a Review, or the Drainer's queue behind it, for minutes: a Review call that sends no first stream event within 20 s, or that fails, is replaced once by a fresh call, and the Review fails after 120 s at most. A model error now fails the Review with the provider's message. Digests keep the provider defaults.
+- The Review log and Digest highlight only the words a Finding's fix changes. A missing word such as "in UI" → "in the UI" marks only the insertion point in the Prompt and shows `in +the UI` in Findings and examples, rather than highlighting the whole quote. The Review log's rewrite diff now uses the Watcher's Finding-anchored word diff, so punctuation no longer pulls neighbouring words into a change.
