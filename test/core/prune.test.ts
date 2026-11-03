@@ -34,6 +34,7 @@ test("prunes expired Review log months and repairs oldest kept pages", async () 
 			allScopesLog: join(root, "all", "log"),
 			keepMonths: 2,
 			explanationLanguage: "English",
+			digestExport: null,
 			path: null,
 		};
 		const monthsByScope = [

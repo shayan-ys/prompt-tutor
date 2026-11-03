@@ -5,6 +5,10 @@ import { join } from "node:path";
 // Leaf-module imports: test/omp mocks src/core/index.ts, and bun applies that mock to an index loaded earlier.
 import { capture } from "../../src/core/capture.ts";
 import { parseConfig } from "../../src/core/config.ts";
+import {
+	drainerMayDigest,
+	dueDrainerDigests,
+} from "../../src/core/digest/index.ts";
 import { drainQueue, queuedRecords } from "../../src/core/drain.ts";
 import {
 	acquireDrainLock,
@@ -268,6 +272,239 @@ describe("drainQueue", () => {
 			`already draining work (pid ${other.pid}, ${drainLockPath(work)})`,
 		]);
 		expect(calls).toHaveLength(0);
+	});
+});
+
+// The reported setup: work Prompts come from Claude Code and the Drainers run in
+// personal directories, so cwd never resolves a Drainer to the work Scope.
+const REPORTED_CONFIG = `scopes:
+  - name: personal
+    when:
+      - profile: personal
+      - cwd: ~/Documents/personal/**
+    review_profile: personal
+  - name: work
+    review_profile: default
+`;
+const SATURDAY = new Date(2026, 9, 3, 12, 0, 0, 0);
+const WEEK = "2026-10-02";
+
+async function loadedConfig() {
+	await writeConfig(REPORTED_CONFIG);
+	const parsed = parseConfig(
+		REPORTED_CONFIG,
+		join(root, "config", "prompt-tutor", "config.yml"),
+		env,
+	);
+	if (!parsed.ok) throw new Error(parsed.error);
+	return parsed.config;
+}
+
+describe("Drainer Digests", () => {
+	test("a Drainer may digest Scopes whose digest_profile or review_profile is its profile", async () => {
+		const config = await loadedConfig();
+		const [personal, work] = config.scopes;
+		expect(personal.digestProfile).toBe("personal");
+		expect(work.digestProfile).toBeNull();
+		expect(drainerMayDigest(work, "default")).toBe(true);
+		expect(drainerMayDigest(personal, "personal")).toBe(true);
+		expect(drainerMayDigest(work, "personal")).toBe(false);
+		expect(drainerMayDigest(personal, "default")).toBe(false);
+
+		const named = { ...work, digestProfile: "a", reviewProfile: "b" };
+		expect(drainerMayDigest(named, "a")).toBe(true);
+		// An explicit digest_profile is never overridden by the review profile.
+		expect(drainerMayDigest(named, "b")).toBe(false);
+		// With no review_profile, a Drainer has no claim on a Scope with no digest_profile.
+		expect(drainerMayDigest({ ...work, reviewProfile: null }, "default")).toBe(
+			false,
+		);
+	});
+
+	test("selects each Scope for its own Drainer only, and not once its week is written", async () => {
+		const config = await loadedConfig();
+		const names = async (profile: string) =>
+			(await dueDrainerDigests({ profile, now: SATURDAY }, config)).map(
+				(scope) => scope.name,
+			);
+		expect(await names("default")).toEqual(["work"]);
+		expect(await names("personal")).toEqual(["personal"]);
+		expect(await names("other")).toEqual([]);
+
+		const work = config.scopes[1];
+		await mkdir(join(work.store, "digests"), { recursive: true });
+		await writeFile(join(work.store, "digests", `${WEEK}.json`), "{}\n");
+		expect(await names("default")).toEqual([]);
+		expect(await names("personal")).toEqual(["personal"]);
+		// The next week is due again once its Friday noon has passed.
+		const nextFriday = new Date(2026, 9, 9, 12, 0, 0, 0);
+		expect(
+			(
+				await dueDrainerDigests({ profile: "default", now: nextFriday }, config)
+			).map((scope) => scope.name),
+		).toEqual(["work"]);
+	});
+
+	async function reviewedWorkPrompt(): Promise<string> {
+		const config = await loadedConfig();
+		const store = config.scopes[1].store;
+		const capturedAt = new Date(2026, 8, 30, 13, 0, 0, 0);
+		await record(store, {
+			id: "w1",
+			captured_at: capturedAt.toISOString(),
+			utc_offset_minutes: -capturedAt.getTimezoneOffset(),
+			text: "This are wrong.",
+			state: "reviewed",
+			review: {
+				findings: [
+					{
+						quote: "are",
+						fix: "is",
+						category: "grammar",
+						why: "A singular subject takes a singular verb.",
+						kind: "subject verb agreement",
+						start: 5,
+						end: 8,
+					},
+				],
+				rewrite: "This is wrong.",
+				tip: "Match the verb to the subject.",
+			},
+			grader: {
+				model: "test/task",
+				requested_reasoning: "medium",
+				prompt_hash: "a1b2c3d4",
+				attempts: 1,
+			},
+		});
+		return store;
+	}
+
+	const digestGrader = (calls: GraderRequest[]): Grader => ({
+		async call(request: GraderRequest) {
+			calls.push(request);
+			return {
+				toolArgs: {
+					patterns: [
+						{
+							id: "subject-agreement",
+							name: "Subject-verb agreement",
+							rule: "A singular subject takes a singular verb.",
+							findingIds: ["w1:1"],
+						},
+					],
+					lesson: "Match the verb to the subject.",
+					focus: "Check each subject and verb.",
+				},
+				model: "test/advisor",
+				requestedReasoning: "high",
+			};
+		},
+	});
+
+	test("builds the due Digest at start, beside an empty review queue", async () => {
+		const store = await reviewedWorkPrompt();
+		const calls: GraderRequest[] = [];
+		const lines: string[] = [];
+		const controller = new AbortController();
+		await drainQueue({
+			profile: "default",
+			grader: cleanGrader([]),
+			digestGrader: digestGrader(calls),
+			now: () => SATURDAY,
+			log: (line) => {
+				lines.push(line);
+				if (line.includes("digest")) controller.abort();
+			},
+			signal: controller.signal,
+			env,
+			pollMs: 20,
+		});
+		expect(calls).toHaveLength(1);
+		expect(lines).toContain("draining work");
+		expect(
+			lines.some((line) =>
+				line.startsWith(`work digest ${WEEK} written: ${store}`),
+			),
+		).toBe(true);
+		const archive = JSON.parse(
+			await readFile(join(store, "digests", `${WEEK}.json`), "utf8"),
+		);
+		expect(archive.scope).toBe("work");
+		expect(lines.some((line) => line.startsWith("personal digest"))).toBe(
+			false,
+		);
+	});
+
+	test("builds nothing without a digest grader or for another profile", async () => {
+		const store = await reviewedWorkPrompt();
+		for (const options of [
+			{ profile: "default", digestGrader: undefined },
+			{ profile: "personal", digestGrader: digestGrader([]) },
+		]) {
+			const lines: string[] = [];
+			const controller = new AbortController();
+			setTimeout(() => controller.abort(), 150);
+			await drainQueue({
+				...options,
+				grader: cleanGrader([]),
+				now: () => SATURDAY,
+				log: (line) => lines.push(line),
+				signal: controller.signal,
+				env,
+				pollMs: 20,
+			});
+			expect(lines.filter((line) => line.startsWith("work digest"))).toEqual(
+				[],
+			);
+			await expect(
+				readFile(join(store, "digests", `${WEEK}.json`), "utf8"),
+			).rejects.toThrow();
+		}
+	});
+
+	test("picks up a week that becomes due while running, and stops on abort mid-Digest", async () => {
+		const store = await reviewedWorkPrompt();
+		let now = new Date(2026, 9, 2, 11, 0, 0, 0); // Friday before noon: the week before is done
+		const lines: string[] = [];
+		const controller = new AbortController();
+		let started: () => void = () => undefined;
+		const callStarted = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const hanging: Grader = {
+			call: () => {
+				started();
+				return new Promise(() => undefined);
+			},
+		};
+		await mkdir(join(store, "digests"), { recursive: true });
+		await writeFile(join(store, "digests", "2026-09-25.json"), "{}\n");
+		const finished = drainQueue({
+			profile: "default",
+			grader: cleanGrader([]),
+			digestGrader: hanging,
+			digestCheckMs: 20,
+			now: () => now,
+			log: (line) => lines.push(line),
+			signal: controller.signal,
+			env,
+			pollMs: 20,
+		});
+		await Bun.sleep(100);
+		expect(lines.filter((line) => line.includes(" digest "))).toEqual([]);
+		now = SATURDAY;
+		await callStarted;
+		controller.abort();
+		await finished;
+		// The aborted Digest left no marker and released its lock.
+		await expect(
+			readFile(join(store, "digests", `${WEEK}.json`), "utf8"),
+		).rejects.toThrow();
+		await expect(
+			readFile(join(store, "digests", ".lock"), "utf8"),
+		).rejects.toThrow();
+		expect(lines.filter((line) => line.includes(" digest "))).toEqual([]);
 	});
 });
 

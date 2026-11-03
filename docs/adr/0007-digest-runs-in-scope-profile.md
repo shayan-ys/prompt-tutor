@@ -6,3 +6,12 @@ Scopes are chosen by omp profile and by working directory (cwd), so a session in
 
 - Scopes and `digest_profile` control where data is **stored** and which profile **runs the Digest**. They don't isolate providers. Each Review sends the Prompt text to the grader role of the session's own profile: `@task` since ADR 0008, `@advisor` before it. That model can come from a different provider than the session's main model, and the session's Scope doesn't change which one it is. Only each profile's grader role setting decides which provider receives that profile's Prompts. The README's privacy section has to say this.
 - If no session of a Scope's `digest_profile` starts during a week, that Scope gets no Digest that week.
+
+## Amendment (2026-10-26): Drainers digest by profile, not by working directory
+
+A Drainer (ADR 0011) is an omp process of one `review_profile` that runs in an arbitrary directory, so resolving a Scope from its cwd, as an interactive session does, can name the wrong Scope. A Drainer of profile `P` may build the Digest of Scope `S` when:
+
+- `S.digest_profile` is `P`, or
+- `S` has no `digest_profile` and `S.review_profile` is `P`.
+
+The second rule closes the gap for a Scope with no profile condition, such as `work` with `review_profile: default`: no session resolves to it by profile, but its Prompts already went to `P`'s `@task` provider, so sending their Findings to `P`'s `@advisor` exposes them to no provider that did not already have them. A Scope with an explicit `digest_profile` is never digested by another profile's Drainer, even if that profile reviewed its Prompts. A Scope with neither setting is not claimed by any Drainer. Interactive sessions follow the original rule. The schedule for a Drainer is in ADR 0002.

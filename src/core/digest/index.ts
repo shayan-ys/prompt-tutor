@@ -1,13 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-	access,
-	mkdir,
-	open,
-	readdir,
-	readFile,
-	stat,
-	unlink,
-} from "node:fs/promises";
+import { access, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "../config.ts";
 import { writeFileAtomic } from "../fsx.ts";
@@ -22,6 +14,14 @@ import type {
 	Scope,
 } from "../types.ts";
 import { FORMAT_VERSION } from "../types.ts";
+import { exportDigests } from "./export.ts";
+import {
+	baseCopy,
+	type History,
+	previousWeekName,
+	readHistory,
+	renderContext,
+} from "./history.ts";
 import { renderDigest } from "./render.ts";
 import type {
 	DigestArchive,
@@ -98,12 +98,6 @@ interface ValidDigest {
 	focus: string;
 }
 
-interface History {
-	byWeek: Map<string, DigestArchive>;
-	priorDigests: DigestArchive[];
-	htmlWeeks: string[];
-}
-
 function localDate(date: Date): string {
 	const year = String(date.getFullYear()).padStart(4, "0");
 	const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -149,12 +143,6 @@ function previousFriday(friday: Date): Date {
 	);
 }
 
-function previousWeekName(week: string): string {
-	const [year, month, day] = week.split("-").map(Number);
-	const previous = new Date(Date.UTC(year, month - 1, day - 7));
-	return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, "0")}-${String(previous.getUTCDate()).padStart(2, "0")}`;
-}
-
 function scopeMatches(left: Scope | null, right: Scope): boolean {
 	return (
 		left !== null && left.name === right.name && left.store === right.store
@@ -183,6 +171,17 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** The Scopes among `scopes` whose Digest for the week ending at `now` is not yet written. */
+async function staleScopes(scopes: Scope[], now: Date): Promise<Scope[]> {
+	const week = localDate(latestEndedFriday(now));
+	const stale: Scope[] = [];
+	for (const scope of scopes) {
+		const digestPath = path.join(scope.store, "digests", `${week}.json`);
+		if (!(await pathExists(digestPath))) stale.push(scope);
+	}
+	return stale;
+}
+
 /** Return the stale configured Scopes this session is allowed to digest. */
 export async function dueDigests(
 	at: { profile: string; cwd: string; now: Date },
@@ -191,7 +190,6 @@ export async function dueDigests(
 	const result = await loadConfig({ env: opts?.env });
 	if (!result.ok) return [];
 
-	const week = localDate(latestEndedFriday(at.now));
 	const resolved = resolveScope(result.config, {
 		profile: at.profile,
 		cwd: at.cwd,
@@ -200,12 +198,31 @@ export async function dueDigests(
 		if (scope.digestProfile === at.profile) return true;
 		return scope.digestProfile === null && scopeMatches(resolved, scope);
 	});
-	const eligible: Scope[] = [];
-	for (const scope of candidates) {
-		const digestPath = path.join(scope.store, "digests", `${week}.json`);
-		if (!(await pathExists(digestPath))) eligible.push(scope);
-	}
-	return eligible;
+	return staleScopes(candidates, at.now);
+}
+
+/**
+ * Whether a Drainer of `profile` may build `scope`'s Digest (ADR 0007, amended): the Scope's
+ * `digest_profile` is that profile, or it names none and that profile already reviewed the
+ * Scope's Prompts, so their Findings reach no new provider. Unlike a session, a Drainer's cwd
+ * says nothing about the Scope, so cwd resolution plays no part.
+ */
+export function drainerMayDigest(scope: Scope, profile: string): boolean {
+	return (
+		scope.digestProfile === profile ||
+		(scope.digestProfile === null && scope.reviewProfile === profile)
+	);
+}
+
+/** Return the stale Scopes of `config` that a Drainer of `profile` may digest. */
+export function dueDrainerDigests(
+	at: { profile: string; now: Date },
+	config: Config,
+): Promise<Scope[]> {
+	return staleScopes(
+		config.scopes.filter((scope) => drainerMayDigest(scope, at.profile)),
+		at.now,
+	);
 }
 
 function capturedWithin(record: PromptRecord, start: Date, end: Date): boolean {
@@ -482,71 +499,6 @@ async function askForDigest(
 	return { error: lastError };
 }
 
-function historyArchive(
-	value: unknown,
-	expectedWeek: string,
-): DigestArchive | null {
-	const root = asObject(value);
-	if (!root || root.version !== FORMAT_VERSION || root.week !== expectedWeek)
-		return null;
-	if (
-		!Array.isArray(root.patterns) ||
-		!asObject(root.stats) ||
-		!Array.isArray(root.graderVersions)
-	)
-		return null;
-	return root as unknown as DigestArchive;
-}
-
-async function readHistory(
-	store: string,
-	currentWeek: string,
-): Promise<History> {
-	const directory = path.join(store, "digests");
-	let entries: string[];
-	try {
-		entries = await readdir(directory);
-	} catch (error) {
-		if (isNodeError(error) && error.code === "ENOENT") {
-			return { byWeek: new Map(), priorDigests: [], htmlWeeks: [] };
-		}
-		throw error;
-	}
-	const jsonWeeks = entries
-		.filter((name) => /^\d{4}-\d{2}-\d{2}\.json$/u.test(name))
-		.map((name) => name.slice(0, -5))
-		.filter((week) => week < currentWeek)
-		.toSorted((a, b) => b.localeCompare(a));
-	const htmlWeeks = entries
-		.filter((name) => /^\d{4}-\d{2}-\d{2}\.html$/u.test(name))
-		.map((name) => name.slice(0, -5))
-		.toSorted((a, b) => a.localeCompare(b));
-	const previousWeek = previousWeekName(currentWeek);
-	const toRead = new Set(jsonWeeks.slice(0, 7));
-	if (jsonWeeks.includes(previousWeek)) toRead.add(previousWeek);
-	const loaded = await Promise.all(
-		[...toRead].map(async (week) => {
-			try {
-				const content = await readFile(
-					path.join(directory, `${week}.json`),
-					"utf8",
-				);
-				return [week, historyArchive(JSON.parse(content), week)] as const;
-			} catch {
-				return [week, null] as const;
-			}
-		}),
-	);
-	const byWeek = new Map<string, DigestArchive>();
-	for (const [week, digest] of loaded) {
-		if (digest) byWeek.set(week, digest);
-	}
-	const priorDigests = [...byWeek.values()].toSorted((a, b) =>
-		b.week.localeCompare(a.week),
-	);
-	return { byWeek, priorDigests, htmlWeeks };
-}
-
 function uniqueCategories(
 	findings: DigestFinding[],
 ): DigestFinding["category"][] {
@@ -624,27 +576,6 @@ function makePatterns(
 	return { patterns, oneOffs };
 }
 
-function changedGrader(
-	current: DigestGraderVersion[],
-	previous: DigestArchive | undefined,
-): { from: DigestGraderVersion[]; to: DigestGraderVersion[] } | null {
-	if (!previous) return null;
-	const versionKey = ({ model, promptHash }: DigestGraderVersion) =>
-		`${model}\u0000${promptHash}`;
-	const currentKeys = current.map(versionKey).toSorted();
-	const previousKeys = previous.graderVersions.map(versionKey).toSorted();
-	if (
-		currentKeys.length === previousKeys.length &&
-		currentKeys.every((key, index) => key === previousKeys[index])
-	)
-		return null;
-	return { from: previous.graderVersions, to: current };
-}
-
-function baseCopy(html: string): string {
-	return html.replace("<head>", '<head>\n<base href="digests/">');
-}
-
 async function acquireLock(lockPath: string): Promise<string | null> {
 	const token = `${process.pid}:${randomUUID()}`;
 	for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -712,7 +643,7 @@ export async function runDigest(
 	grader: Grader,
 	now: Date,
 ): Promise<
-	| { kind: "written"; htmlPath: string; week: string }
+	| { kind: "written"; htmlPath: string; week: string; exportError?: string }
 	| { kind: "empty"; week: string }
 	| { kind: "current"; week: string }
 	| { kind: "locked" }
@@ -777,20 +708,7 @@ export async function runDigest(
 			patterns: grouped.patterns,
 			oneOffs: grouped.oneOffs,
 		};
-		const previousWeek = history.byWeek.get(previousWeekName(week)) ?? null;
-		const previousArchive =
-			history.htmlWeeks
-				.filter((candidate) => candidate < week)
-				.toSorted()
-				.at(-1) ?? null;
-		const graderChange = changedGrader(versions, history.priorDigests[0]);
-		const archiveWeeks = [...history.htmlWeeks, week];
-		const html = renderDigest(archive, {
-			previousWeek,
-			previousArchive,
-			archiveWeeks,
-			graderChanged: graderChange,
-		});
+		const html = renderDigest(archive, renderContext(week, versions, history));
 		const htmlPath = path.join(digestDirectory, `${week}.html`);
 		await writeFileAtomic(htmlPath, html);
 		await writeFileAtomic(
@@ -799,7 +717,19 @@ export async function runDigest(
 		);
 		// Written last: if an earlier write fails, the week stays stale and the next session retries.
 		await writeFileAtomic(jsonPath, `${JSON.stringify(archive, null, 2)}\n`);
-		return { kind: "written", htmlPath, week };
+		if (config.digestExport === null)
+			return { kind: "written", htmlPath, week };
+		try {
+			await exportDigests(config);
+			return { kind: "written", htmlPath, week };
+		} catch (error) {
+			return {
+				kind: "written",
+				htmlPath,
+				week,
+				exportError: errorMessage(error),
+			};
+		}
 	} catch (error) {
 		return {
 			kind: "failed",
@@ -816,4 +746,5 @@ export async function runDigest(
 	}
 }
 
+export { exportDigests } from "./export.ts";
 export { renderDigest } from "./render.ts";

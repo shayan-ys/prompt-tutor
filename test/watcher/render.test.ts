@@ -7,6 +7,7 @@ const config: Config = {
 	allScopesLog: "/tmp/prompt-tutor/all/log",
 	keepMonths: null,
 	explanationLanguage: "English",
+	digestExport: null,
 	scopes: [
 		{
 			name: "work",

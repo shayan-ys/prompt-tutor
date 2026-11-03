@@ -2,6 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
+import { dueDrainerDigests, runDigest } from "./digest/index.ts";
 import {
 	acquireDrainLock,
 	drainLockPath,
@@ -10,7 +11,47 @@ import {
 } from "./drain-lock.ts";
 import { review } from "./review.ts";
 import { listMonths, readMonth, readRecord } from "./store.ts";
-import type { Grader, PromptRecord, Scope } from "./types.ts";
+import type {
+	Grader,
+	GraderRequest,
+	GraderResponse,
+	PromptRecord,
+	Scope,
+} from "./types.ts";
+
+const DIGEST_CHECK_MS = 60 * 60 * 1000;
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		const done = (): void => {
+			clearTimeout(timer);
+			signal.removeEventListener("abort", done);
+			resolve();
+		};
+		const timer = setTimeout(done, ms);
+		signal.addEventListener("abort", done, { once: true });
+		if (signal.aborted) done();
+	});
+}
+
+/** A grader whose pending call rejects as soon as `signal` aborts. */
+function abortable(grader: Grader, signal: AbortSignal): Grader {
+	return {
+		call(request: GraderRequest): Promise<GraderResponse> {
+			if (signal.aborted) return Promise.reject(new Error("aborted"));
+			return new Promise<GraderResponse>((resolve, reject) => {
+				const onAbort = (): void => reject(new Error("aborted"));
+				signal.addEventListener("abort", onAbort, { once: true });
+				grader
+					.call(request)
+					.then(resolve, reject)
+					.finally(() => {
+						signal.removeEventListener("abort", onAbort);
+					});
+			});
+		},
+	};
+}
 
 /** Queued Claude Code records of one store, oldest first, across all months. */
 export async function queuedRecords(store: string): Promise<PromptRecord[]> {
@@ -34,6 +75,15 @@ export interface DrainOptions {
 	/** One line per event; never contains Prompt text. */
 	log: (line: string) => void;
 	signal: AbortSignal;
+	/**
+	 * Grader for weekly Digests (`@advisor`). When set, the Drainer also builds the due Digests
+	 * of the Scopes its profile may digest (ADR 0007, amended); without it, it builds none.
+	 */
+	digestGrader?: Grader;
+	/** How often to look for a due Digest; the first look is at start. Default one hour. */
+	digestCheckMs?: number;
+	/** Clock for the Digest week; defaults to the current time. */
+	now?: () => Date;
 	env?: NodeJS.ProcessEnv;
 	/** Poll fallback when no file event arrives. */
 	pollMs?: number;
@@ -45,8 +95,8 @@ interface HeldScope {
 }
 
 /**
- * Drains queued Claude Code records of this profile's Scopes until `signal` aborts.
- * Never throws: errors are logged and the loop continues.
+ * Drains queued Claude Code records of this profile's Scopes until `signal` aborts, and builds
+ * the weekly Digests this profile may run. Never throws: errors are logged and the loops continue.
  */
 export async function drainQueue(options: DrainOptions): Promise<void> {
 	const { profile, grader, log, signal } = options;
@@ -154,6 +204,59 @@ export async function drainQueue(options: DrainOptions): Promise<void> {
 		}
 	};
 
+	// Digests run beside the review loop, never inside it, so a long `@advisor` call cannot
+	// hold up the queue. Each check lists due Scopes afresh, so a week that became due
+	// after Friday 12:00 is picked up by the next check, and a failed Digest is retried.
+	const digestPass = async (digestGrader: Grader): Promise<void> => {
+		const loaded = await loadConfig({ env: options.env });
+		// The review loop already reports an invalid configuration.
+		if (!loaded.ok) return;
+		const now = (options.now ?? (() => new Date()))();
+		for (const scope of await dueDrainerDigests(
+			{ profile, now },
+			loaded.config,
+		)) {
+			if (signal.aborted) return;
+			const result = await runDigest(scope, loaded.config, digestGrader, now);
+			if (signal.aborted) return;
+			switch (result.kind) {
+				case "written":
+					log(
+						`${scope.name} digest ${result.week} written: ${result.htmlPath}`,
+					);
+					if (result.exportError)
+						log(`${scope.name} digest export failed: ${result.exportError}`);
+					break;
+				case "empty":
+					log(`${scope.name} digest ${result.week} empty`);
+					break;
+				case "current":
+					log(`${scope.name} digest ${result.week} already written`);
+					break;
+				case "locked":
+					log(`${scope.name} digest locked by another run`);
+					break;
+				case "failed":
+					log(`${scope.name} digest failed: ${result.error}`);
+					break;
+			}
+		}
+	};
+	const digestLoop = async (digestGrader: Grader): Promise<void> => {
+		const grader = abortable(digestGrader, signal);
+		while (!signal.aborted) {
+			try {
+				await digestPass(grader);
+			} catch (error) {
+				log(`digest check failed: ${String(error)}`);
+			}
+			await sleep(options.digestCheckMs ?? DIGEST_CHECK_MS, signal);
+		}
+	};
+	const digests = options.digestGrader
+		? digestLoop(options.digestGrader)
+		: Promise.resolve();
+
 	try {
 		while (!signal.aborted) {
 			dirty = false;
@@ -176,6 +279,7 @@ export async function drainQueue(options: DrainOptions): Promise<void> {
 			});
 		}
 	} finally {
+		await digests;
 		for (const store of [...held.keys()]) release(store);
 		process.off("exit", releaseAll);
 	}

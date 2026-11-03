@@ -7,6 +7,7 @@ export {
 	DIGEST_TOOL,
 	digestPromptForLanguage,
 	dueDigests,
+	exportDigests,
 	renderDigest,
 	runDigest,
 } from "./digest/index.ts";

@@ -134,3 +134,55 @@ test("input passes through synchronously, filters sources and agents, and ignore
 	expect(statuses.at(-1)?.[1]).toContain("newest");
 	expect(notifications).toHaveLength(0);
 });
+
+test("session_start builds a Digest only in an interactive main-agent session", async () => {
+	const handlers = new Map<string, unknown>();
+	const pi = {
+		on: (event: string, handler: unknown) => handlers.set(event, handler),
+		registerCommand: () => undefined,
+	} as unknown as ExtensionAPI;
+	promptTutor(pi);
+	const sessionStart = handlers.get("session_start") as (
+		event: object,
+		ctx: ExtensionContext,
+	) => unknown;
+	if (!sessionStart) throw new Error("session_start was not registered.");
+	loadConfig.mockImplementation((async () => ({
+		ok: true as const,
+		config: {},
+	})) as unknown as typeof loadConfig);
+
+	const start = async (
+		mode: string,
+		agent: { kind: string },
+	): Promise<void> => {
+		dueDigests.mockClear();
+		pruneExpiredMonths.mockClear();
+		// This fake implements only the fields the session_start handler reads.
+		const ctx = {
+			cwd: "/fixture",
+			mode,
+			agent,
+			setTimeout: (callback: () => void) => callback(),
+			ui: { notify: () => undefined },
+			models: { resolve: () => undefined },
+			modelRegistry: { resolver: () => undefined },
+			sessionManager: { getSessionId: () => "test-session" },
+		} as unknown as ExtensionContext;
+		sessionStart({}, ctx);
+		await flushMicrotasks();
+	};
+
+	await start("tui", { kind: "main" });
+	expect(dueDigests).toHaveBeenCalledTimes(1);
+	expect(pruneExpiredMonths).toHaveBeenCalledTimes(1);
+
+	for (const mode of ["print", "rpc", "json"]) {
+		await start(mode, { kind: "main" });
+		expect(dueDigests).not.toHaveBeenCalled();
+		// Retention is not Digest work and still runs.
+		expect(pruneExpiredMonths).toHaveBeenCalledTimes(1);
+	}
+	await start("tui", { kind: "sub" });
+	expect(dueDigests).not.toHaveBeenCalled();
+});

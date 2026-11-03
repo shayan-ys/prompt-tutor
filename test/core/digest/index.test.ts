@@ -95,6 +95,7 @@ function configFor(scope: Scope, root: string): Config {
 		allScopesLog: path.join(root, "all", "log"),
 		keepMonths: null,
 		explanationLanguage: "English",
+		digestExport: null,
 		path: null,
 	};
 }
