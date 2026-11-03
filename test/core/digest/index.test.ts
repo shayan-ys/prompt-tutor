@@ -453,7 +453,7 @@ describe("runDigest", () => {
 		expect(digest.patterns[0].examples).toHaveLength(1);
 		const html = await readFile(path.join(target.store, "digest.html"), "utf8");
 		expect(html).toContain('<base href="digests/">');
-		expect(html).toContain("Lessons by Pattern");
+		expect(html).toContain("Your patterns");
 		expect(html).toContain("Grader changed this week:");
 		expect(html).toContain("Last Digest counts");
 	});
@@ -740,8 +740,8 @@ describe("runDigest", () => {
 			"utf8",
 		);
 		expect(html).toContain("<h1>English Digest</h1>");
-		expect(html).toContain("Check before sending:");
-		expect(html).toContain("<summary>Answer</summary>");
+		expect(html).toContain("Before you send");
+		expect(html).toContain("<summary>answer</summary>");
 	});
 
 	test("rejects a Pattern of two or more Findings that has no explanation", async () => {
