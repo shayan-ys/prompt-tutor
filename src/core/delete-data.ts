@@ -79,6 +79,38 @@ async function planDeletions(
 		}
 	}
 
+	// The combined Digest store (ADR 0012). By default it is the all-Scopes log's parent, which
+	// the block below removes once it is empty; any other location is removed here.
+	const combinedStore = config.combinedDigest?.store ?? null;
+	if (combinedStore !== null) {
+		const digestsPath = join(combinedStore, "digests");
+		if (await pathExists(digestsPath)) {
+			recursive.push(digestsPath);
+			removalSet.add(digestsPath);
+		}
+		const latestPath = join(combinedStore, "digest.html");
+		if (await pathExists(latestPath)) {
+			files.push(latestPath);
+			removalSet.add(latestPath);
+		}
+		const sharesLogParent =
+			config.scopes.length > 1 &&
+			combinedStore === dirname(config.allScopesLog);
+		if (!sharesLogParent && (await pathExists(combinedStore))) {
+			const remaining = (await directoryEntries(combinedStore)).filter(
+				(entry) => !removalSet.has(join(combinedStore, entry.name)),
+			);
+			if (remaining.length === 0) {
+				directories.push(combinedStore);
+				removalSet.add(combinedStore);
+			} else {
+				unknown.push(
+					...remaining.map((entry) => join(combinedStore, entry.name)),
+				);
+			}
+		}
+	}
+
 	if (config.scopes.length > 1) {
 		const stubDirectory = join(config.allScopesLog, "r");
 		if (await pathExists(stubDirectory)) {

@@ -201,9 +201,7 @@ describe("core configuration and scope matching", () => {
 		expect(localizedGrader).toContain("in Spanish");
 		expect(graderPromptHashForLanguage("Spanish")).not.toBe(GRADER_PROMPT_HASH);
 		expect(digestPromptForLanguage("english")).toBe(DIGEST_PROMPT);
-		expect(digestPromptForLanguage("Spanish")).toContain(
-			"Write Pattern names and rules, the lesson, and the focus paragraph in Spanish.",
-		);
+		expect(digestPromptForLanguage("Spanish")).toContain("in Spanish.");
 	});
 });
 

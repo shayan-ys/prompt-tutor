@@ -10,6 +10,7 @@ import {
 } from "./history.ts";
 import { noteName, noteSummary, renderDigestMarkdown } from "./markdown.ts";
 import { renderDigest } from "./render.ts";
+import { digestTargets } from "./targets.ts";
 
 /** Write only changed files, so a synced export directory does not upload identical copies. */
 async function writeIfChanged(
@@ -40,17 +41,17 @@ async function digestWeeks(store: string): Promise<string[]> {
 }
 
 /**
- * Rebuild `config.digestExport` from every Scope's stored Digests: a Markdown note and a
- * re-rendered HTML page per week, each Scope's latest page, and an `_index.md` table.
- * Files are rebuilt from the archives, never appended to, and nothing is deleted.
- * Returns the paths that changed.
+ * Rebuild `config.digestExport` from every stored Digest — each Scope's, or the combined one
+ * (ADR 0012): a Markdown note and a re-rendered HTML page per week, each target's latest page,
+ * and an `_index.md` table. Files are rebuilt from the archives, never appended to, and nothing
+ * is deleted. Returns the paths that changed.
  */
 export async function exportDigests(config: Config): Promise<string[]> {
 	const root = config.digestExport;
 	if (root === null) return [];
 	const written: string[] = [];
 	const notes: { name: string; summary: string; week: string }[] = [];
-	for (const scope of config.scopes) {
+	for (const scope of digestTargets(config)) {
 		if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(scope.name))
 			throw new Error(
 				`Scope name ${JSON.stringify(scope.name)} cannot be used as an export directory name`,

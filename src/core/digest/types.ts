@@ -1,4 +1,20 @@
-import type { Category } from "../types.ts";
+import type { Category, Scope } from "../types.ts";
+
+/**
+ * What one Digest covers: a single Scope, or every Scope at once (`combined_digest`, ADR 0012).
+ * `store` holds `digests/` and `digest.html`; `sources` are the Scopes whose Prompts are read.
+ */
+export interface DigestTarget {
+	name: string;
+	store: string;
+	sources: Scope[];
+}
+
+/** A short exercise the tutor writes: a new sentence with the Pattern's error, and its fix. */
+export interface DigestPractice {
+	sentence: string;
+	answer: string;
+}
 
 export interface DigestFinding {
 	id: string;
@@ -24,7 +40,14 @@ export interface DigestPattern {
 	categories: Category[];
 	count: number;
 	findingIds: string[];
+	/** Every distinct example, newest first; the page shows the first few and folds the rest. */
 	examples: DigestFinding[];
+	/** The tutor's explanation of the rule and of why these sentences break it; absent before ADR 0012. */
+	explanation?: string;
+	/** One self-check to catch the error before sending; absent before ADR 0012. */
+	tip?: string;
+	/** Exercises for this Pattern; absent before ADR 0012. */
+	practice?: DigestPractice[];
 	/** True when the Pattern meets this Digest's recurrence rule. */
 	recurring: boolean;
 	/** Count for the same Pattern in the immediately preceding week, or null if absent. */

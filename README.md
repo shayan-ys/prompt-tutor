@@ -10,7 +10,7 @@ No GIF is included: a fixture-only VHS recording has not yet been made.
 
 - **Reviews:** spelling, grammar, and fluency findings, a same-register rewrite, and one transferable tip.
 - **Watcher:** a colourful terminal view of the latest Review and recent Prompts, with links to the full local Review log.
-- **Digest:** a weekly, per-Scope HTML lesson about recurring patterns, with counts, examples, trends, and a focus paragraph. It reads on a phone, and it can also be exported as Markdown notes for a notes vault.
+- **Digest:** a weekly HTML lesson, per Scope or combined across Scopes: a teacher's note on your progress, then one card per recurring pattern with an explanation, a self-check, your own examples, and practice sentences with hidden answers. It reads on a phone, and it can also be exported as Markdown notes for a notes vault.
 
 A static Digest screenshot is not included yet; this repository has no rendered fixture Digest to capture.
 
@@ -166,11 +166,18 @@ scopes:
 
 `digest_export` is optional and names a directory, for example a folder in an Obsidian vault. After each new Digest, prompt-tutor rebuilds it from every Scope's stored Digests: one Markdown note per week, `Prompt Tutor Digest <week> (<scope>).md`, with YAML frontmatter and a link to the previous week; the HTML page at `<scope>/digests/<week>.html` and the latest one at `<scope>/digest.html`; and an `_index.md` table of the notes. Only changed files are written and nothing is deleted. `prompt-tutor export-digests` runs the same rebuild on demand, for example after you set `digest_export`. The export contains the Findings, so a synced or shared directory receives them too.
 
+`combined_digest` is optional. With it, one Digest covers every Scope and no per-Scope Digest is built; it is written to `$XDG_DATA_HOME/prompt-tutor/all/digest.html` unless `store` names another directory, which must not overlap a Scope store. Only sessions and Drainers of `profile` build it, so every Scope's Findings go to that profile's `@advisor` ([ADR 0012](./docs/adr/0012-combined-digest-and-teaching.md)):
+
+```yaml
+combined_digest:
+  profile: personal
+```
+
 ## Privacy
 
-1. **Provider exposure:** each omp Prompt's text is sent to the session profile's `@task` model for its Review (ADR 0008). Each Claude Code Prompt's text is sent to the `@task` model of its Scope's `review_profile` (ADR 0011); Claude Code and your Claude account receive nothing extra from prompt-tutor. Each week's Findings, with the sentences they came from, are sent to the Scope's Digest profile's `@advisor` model (ADR 0007). Scope selection does not change which provider receives a Prompt; the reviewing profile's `@task` setting does.
+1. **Provider exposure:** each omp Prompt's text is sent to the session profile's `@task` model for its Review (ADR 0008). Each Claude Code Prompt's text is sent to the `@task` model of its Scope's `review_profile` (ADR 0011); Claude Code and your Claude account receive nothing extra from prompt-tutor. Each week's Findings, with the sentences they came from, are sent to the Scope's Digest profile's `@advisor` model (ADR 0007), or with `combined_digest` every Scope's Findings go to its `profile`'s `@advisor` (ADR 0012). Scope selection does not change which provider receives a Prompt; the reviewing profile's `@task` setting does.
 2. **Storage:** by default, each Scope's files are under `$XDG_DATA_HOME/prompt-tutor/<scope>/` (normally `~/.local/share/prompt-tutor/<scope>/`); a configured `store` may choose another path. With two or more Scopes, the all-Scopes Review log is stored at `$XDG_DATA_HOME/prompt-tutor/all/log/` unless `all_scopes_log` overrides it. Files are written with mode `0600`. Prompt records contain only preprocessed text: `<system-reminder>` blocks that Claude Code adds are removed, a leading slash token is removed, and fenced code is replaced with `[code]`. `keep_months` optionally prunes old Review log months; `prompt-tutor --delete-data` lists the known data paths, and adding `--yes` removes them.
-3. **Scope separation:** Scopes keep work and personal Prompt records, Review logs, and Digests apart. They do not isolate or change providers. `explanation_language` changes only the language of explanations, not what is sent.
+3. **Scope separation:** Scopes keep work and personal Prompt records and Review logs apart, and their Digests too unless `combined_digest` is set. They do not isolate or change providers. `explanation_language` changes only the language of explanations, not what is sent.
 
 ## Upgrade
 

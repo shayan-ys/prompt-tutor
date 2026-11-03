@@ -103,6 +103,11 @@ export interface Config {
 	explanationLanguage: string;
 	/** Absolute directory that receives every Scope's Digests as HTML and Markdown, or null. */
 	digestExport: string | null;
+	/**
+	 * One Digest over every Scope's Prompts, built only by `profile`, stored in `store`; null keeps
+	 * one Digest per Scope. When set, no per-Scope Digest is built (ADR 0012).
+	 */
+	combinedDigest: { profile: string; store: string } | null;
 	/** Absolute config path, or null when no config file exists (one Scope named `default`). */
 	path: string | null;
 }
