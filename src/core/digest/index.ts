@@ -37,16 +37,18 @@ import type {
 const CATEGORY_ORDER = ["spelling", "grammar", "fluency"] as const;
 const LOCK_STALE_AFTER_MS = 10 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+/** Patterns that get an explanation, tip, and practice; caps the Digest's output in a busy week. */
+const TAUGHT_PATTERNS = 8;
 
 export const DIGEST_PROMPT = `You are an experienced English teacher writing weekly written feedback for one adult learner. The learner is advanced but makes recurring mistakes when typing quickly to AI coding agents. You receive one week of language Findings (each with its containing sentence, the quoted error, the fix, and a short reason), this week's counts, and the Patterns, counts, and focus of earlier weeks. You receive no full Prompts and no session context.
 
 GROUPING. Group every supplied Finding id into exactly one Pattern. Every id must appear once: do not omit, duplicate, or invent ids. A Pattern describes one underlying language rule or error. The Findings' free-text kinds are hints, not stable labels: different kinds can describe the same Pattern, and one kind can cover different Patterns. Group by the language issue shown by the quote, fix, and containing sentence. Reuse a prior Pattern id exactly when the underlying issue is the same; otherwise invent a short, stable kebab-case id. Do not match by name alone. Prefer teachable Patterns: one rule the learner can learn and check, not a catch-all bucket.
 
-EACH PATTERN. Give a concise name and a one-sentence rule. For every Pattern with two or more Findings, also write:
+EACH PATTERN. Give a concise name and a one-sentence rule. For each of the ${TAUGHT_PATTERNS} Patterns with the most Findings, among those with two or more, also write:
 - explanation: 60 to 150 words, as a teacher talking to this learner. Explain how the rule works, show why the learner's own sentences break it by quoting one or two of them with their corrections, and contrast the wrong and right form. Name a common exception or a confusable case when one exists. Do not lecture with grammar jargon the learner does not need.
 - tip: one concrete self-check, under 40 words, that the learner can apply while rereading a prompt before sending it.
 - practice: three short exercises. Each is a new sentence, in the same topics and register as the learner's prompts, that contains exactly this Pattern's error, with its corrected answer. Do not copy the learner's sentences.
-For a Pattern with one Finding, set explanation and tip to empty strings and practice to an empty list.
+For every other Pattern, set explanation and tip to empty strings and practice to an empty list. Keep to these limits even in a week with many Findings.
 
 LESSON. Write the teacher's note for the week: 150 to 300 words in two to four short paragraphs separated by blank lines. Open with what improved or held steady, using the counts and earlier weeks when they show it, and say whether last week's focus shows progress. Then teach the two or three Patterns that matter most, ranked by how often they occur and how much they affect clarity, quoting the learner's corrected sentences. Be specific, warm, and honest; do not pad with praise.
 
@@ -496,13 +498,6 @@ function validateDigest(
 				problems.push(
 					`Pattern ${index + 1} needs explanation and tip strings.`,
 				);
-			else if (
-				findingIds.length >= 2 &&
-				(explanation.length === 0 || tip.length === 0)
-			)
-				problems.push(
-					`Pattern ${index + 1} has ${findingIds.length} Findings and needs a non-empty explanation and tip.`,
-				);
 			const practice: DigestPractice[] = [];
 			if (!Array.isArray(pattern.practice))
 				problems.push(`Pattern ${index + 1} practice must be an array.`);
@@ -536,6 +531,15 @@ function validateDigest(
 	for (const id of expectedIds) {
 		if (!assignedFindings.has(id)) problems.push(`Missing Finding id ${id}.`);
 	}
+	const untaught = patterns
+		.filter(({ findingIds }) => findingIds.length >= 2)
+		.toSorted((a, b) => b.findingIds.length - a.findingIds.length)
+		.slice(0, TAUGHT_PATTERNS)
+		.filter(({ explanation, tip }) => !explanation || !tip);
+	for (const pattern of untaught)
+		problems.push(
+			`Pattern ${pattern.id} is among the ${TAUGHT_PATTERNS} largest and needs a non-empty explanation and tip.`,
+		);
 
 	if (problems.length > 0) return { problems };
 	return {
