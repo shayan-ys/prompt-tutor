@@ -252,6 +252,7 @@ export default function promptTutor(pi: ExtensionAPI): void {
 			void drainQueue({
 				profile: profile(),
 				grader: makeGrader(ctx, REVIEW_GRADER),
+				digestGrader: makeGrader(ctx, DIGEST_GRADER),
 				log: (line) => {
 					process.stderr.write(`prompt-tutor drain: ${line}\n`);
 				},
@@ -260,6 +261,10 @@ export default function promptTutor(pi: ExtensionAPI): void {
 		}
 		scopeErrorNotified = false;
 		const now = new Date();
+		// Only a person's own terminal session builds a Digest (ADR 0002). Headless runs can end
+		// mid-Digest and orphan its lock, and a Drainer builds its Digests itself (ADR 0007).
+		const buildsDigests =
+			ctx.mode === "tui" && ctx.agent.kind === "main" && !drain;
 		schedule(ctx, async () => {
 			try {
 				const loaded = await loadConfig();
@@ -284,6 +289,7 @@ export default function promptTutor(pi: ExtensionAPI): void {
 						}
 					})(),
 					(async () => {
+						if (!buildsDigests) return;
 						try {
 							const scopes = await dueDigests({
 								profile: profile(),
@@ -295,12 +301,18 @@ export default function promptTutor(pi: ExtensionAPI): void {
 								scopes.map(async (scope) => {
 									try {
 										const digest = await runDigest(scope, config, grader, now);
-										if (digest.kind === "written")
+										if (digest.kind === "written") {
 											notifySafely(
 												ctx,
 												`prompt-tutor Digest written: ${digest.htmlPath}`,
 											);
-										else if (digest.kind === "failed")
+											if (digest.exportError)
+												notifySafely(
+													ctx,
+													`prompt-tutor Digest export failed: ${digest.exportError}`,
+													"warning",
+												);
+										} else if (digest.kind === "failed")
 											notifySafely(
 												ctx,
 												`prompt-tutor Digest failed: ${digest.error}`,

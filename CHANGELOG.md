@@ -19,7 +19,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Claude Code support: a Claude Code mod captures typed Prompts, and `prompt-tutor capture --harness claude-code` queues them. Preprocessing drops the `<system-reminder>` blocks Claude Code adds to submitted text. Install it with `claude plugin marketplace add shayan-ys/prompt-tutor`.
 - `prompt-tutor drain` starts the Drainer, which reviews queued Claude Code Prompts in a headless omp process for each configured `review_profile`, using that profile's `@task`. A Scope's new `review_profile` setting has no default; without it, its Claude Code Prompts stay queued.
 - The Watcher shows a Claude Code Prompt as queued until a Drainer holds its Scope's `drain.lock`.
+- `digest_export` and `prompt-tutor export-digests` copy every Scope's Digests to a directory as Markdown notes with frontmatter, HTML pages, and an `_index.md`, so a notes vault or an assistant that searches it can read them.
+
+### Changed
+- The Digest page fits a phone screen: below 760 px each recurring Pattern is a card with its counts and trend on one line and its examples at full width, instead of a table that scrolls sideways. The lesson keeps its line breaks.
 
 ### Fixed
+- A Scope whose Prompts come from Claude Code now gets its weekly Digest. The Drainer builds the Digests of its profile's Scopes (those with that `digest_profile`, or with no `digest_profile` and that `review_profile`), at start and then hourly, using its `@advisor`, and logs the result. Headless omp runs no longer start a Digest at `session_start`, which left an orphaned lock and no Digest; only interactive main-agent sessions do.
 - A stalled model request no longer holds a Review, or the Drainer's queue behind it, for minutes: a Review call that sends no first stream event within 20 s, or that fails, is replaced once by a fresh call, and the Review fails after 120 s at most. A model error now fails the Review with the provider's message. Digests keep the provider defaults.
 - The Review log and Digest highlight only the words a Finding's fix changes. A missing word such as "in UI" → "in the UI" marks only the insertion point in the Prompt and shows `in +the UI` in Findings and examples, rather than highlighting the whole quote. The Review log's rewrite diff now uses the Watcher's Finding-anchored word diff, so punctuation no longer pulls neighbouring words into a change.

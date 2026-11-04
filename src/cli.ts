@@ -5,6 +5,7 @@ import {
 	configPath,
 	deleteData,
 	drainLockPath,
+	exportDigests,
 	liveDrainLock,
 	loadConfig,
 	releaseDrainLockSync,
@@ -15,6 +16,7 @@ import { renderOnce, startWatcher } from "./watcher/index.ts";
 const USAGE = `Usage: prompt-tutor [--help | --once | --delete-data [--yes]]
        prompt-tutor capture --harness claude-code [--cwd DIR]
        prompt-tutor drain
+       prompt-tutor export-digests
 
 With no arguments, run the terminal Watcher.
   --once          render one frame to stdout and exit (read-only)
@@ -25,7 +27,9 @@ With no arguments, run the terminal Watcher.
   capture         queue the Prompt text read from stdin for review;
                   prints one JSON line without the text
   drain           review queued Claude Code Prompts with one headless omp
-                  per Scope review_profile, until interrupted`;
+                  per Scope review_profile, until interrupted
+  export-digests  rebuild the digest_export directory from stored Digests;
+                  prints each changed path`;
 
 function usageError(message: string): void {
 	console.error(message);
@@ -223,9 +227,27 @@ function sizeFromEnv(name: string): number | undefined {
 	return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+async function runExportDigests(args: string[]): Promise<void> {
+	if (args.length > 0) return usageError(`Unknown argument: ${args[0]}`);
+	const loaded = await loadConfig();
+	if (!loaded.ok) {
+		console.error(`prompt-tutor: configuration error: ${loaded.error}`);
+		process.exitCode = 1;
+		return;
+	}
+	if (loaded.config.digestExport === null) {
+		console.error("prompt-tutor: digest_export is not set in the config.");
+		process.exitCode = 1;
+		return;
+	}
+	for (const written of await exportDigests(loaded.config))
+		console.log(written);
+}
+
 export async function main(args = process.argv.slice(2)): Promise<void> {
 	if (args[0] === "capture") return runCapture(args.slice(1));
 	if (args[0] === "drain") return runDrain(args.slice(1));
+	if (args[0] === "export-digests") return runExportDigests(args.slice(1));
 	if (args.includes("--help")) {
 		if (args.length !== 1) {
 			console.error("--help cannot be combined with other arguments.");

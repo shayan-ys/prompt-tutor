@@ -101,6 +101,8 @@ export interface Config {
 	keepMonths: number | null;
 	/** Language used for Review explanations and Digest prose; English remains the target. */
 	explanationLanguage: string;
+	/** Absolute directory that receives every Scope's Digests as HTML and Markdown, or null. */
+	digestExport: string | null;
 	/** Absolute config path, or null when no config file exists (one Scope named `default`). */
 	path: string | null;
 }

@@ -65,6 +65,7 @@ function defaultConfig(env: Env): Config {
 		allScopesLog: resolve(base, "all", "log"),
 		keepMonths: null,
 		explanationLanguage: "English",
+		digestExport: null,
 		path: null,
 	};
 }
@@ -91,7 +92,8 @@ export function parseConfig(
 			key !== "scopes" &&
 			key !== "all_scopes_log" &&
 			key !== "keep_months" &&
-			key !== "explanation_language"
+			key !== "explanation_language" &&
+			key !== "digest_export"
 		) {
 			return configError(`unknown config key: ${key}`, sourcePath);
 		}
@@ -294,6 +296,31 @@ export function parseConfig(
 			);
 		}
 	}
+	let digestExport: string | null = null;
+	if (parsed.digest_export !== undefined && parsed.digest_export !== null) {
+		if (
+			typeof parsed.digest_export !== "string" ||
+			parsed.digest_export.trim().length === 0
+		) {
+			return configError(
+				"digest_export must be a non-empty string or null",
+				sourcePath,
+			);
+		}
+		digestExport = absoluteExpandedPath(
+			parsed.digest_export,
+			env,
+			configDirectory,
+		);
+		for (const scope of scopes) {
+			if (isWithin(scope.store, digestExport)) {
+				return configError(
+					`digest_export cannot be inside the ${scope.name} store`,
+					sourcePath,
+				);
+			}
+		}
+	}
 
 	return {
 		ok: true,
@@ -302,6 +329,7 @@ export function parseConfig(
 			allScopesLog,
 			keepMonths,
 			explanationLanguage,
+			digestExport,
 			path: sourcePath,
 		},
 	};
