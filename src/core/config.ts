@@ -66,6 +66,7 @@ function defaultConfig(env: Env): Config {
 		keepMonths: null,
 		explanationLanguage: "English",
 		digestExport: null,
+		combinedDigest: null,
 		path: null,
 	};
 }
@@ -93,7 +94,8 @@ export function parseConfig(
 			key !== "all_scopes_log" &&
 			key !== "keep_months" &&
 			key !== "explanation_language" &&
-			key !== "digest_export"
+			key !== "digest_export" &&
+			key !== "combined_digest"
 		) {
 			return configError(`unknown config key: ${key}`, sourcePath);
 		}
@@ -321,6 +323,46 @@ export function parseConfig(
 			}
 		}
 	}
+	let combinedDigest: Config["combinedDigest"] = null;
+	if (parsed.combined_digest !== undefined && parsed.combined_digest !== null) {
+		const value = parsed.combined_digest;
+		if (!isObject(value))
+			return configError(
+				"combined_digest must be an object or null",
+				sourcePath,
+			);
+		for (const key of Object.keys(value)) {
+			if (key !== "profile" && key !== "store")
+				return configError(`unknown combined_digest key: ${key}`, sourcePath);
+		}
+		if (typeof value.profile !== "string" || value.profile.trim().length === 0)
+			return configError(
+				"combined_digest.profile must be a non-empty string",
+				sourcePath,
+			);
+		let store = resolve(base, "all");
+		if (value.store !== undefined) {
+			if (typeof value.store !== "string" || value.store.trim().length === 0)
+				return configError(
+					"combined_digest.store must be a non-empty string",
+					sourcePath,
+				);
+			store = absoluteExpandedPath(value.store, env, configDirectory);
+		}
+		for (const scope of scopes) {
+			if (isWithin(scope.store, store) || isWithin(store, scope.store))
+				return configError(
+					`combined_digest.store cannot overlap the ${scope.name} store`,
+					sourcePath,
+				);
+		}
+		if (digestExport !== null && isWithin(store, digestExport))
+			return configError(
+				"digest_export cannot be inside combined_digest.store",
+				sourcePath,
+			);
+		combinedDigest = { profile: value.profile, store };
+	}
 
 	return {
 		ok: true,
@@ -330,6 +372,7 @@ export function parseConfig(
 			keepMonths,
 			explanationLanguage,
 			digestExport,
+			combinedDigest,
 			path: sourcePath,
 		},
 	};

@@ -10,7 +10,12 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { dueDigests, runDigest } from "../../../src/core/digest/index.ts";
+import {
+	dueDigests,
+	dueDrainerDigests,
+	runDigest,
+} from "../../../src/core/digest/index.ts";
+import type { DigestTarget } from "../../../src/core/digest/types.ts";
 import type {
 	Config,
 	Grader,
@@ -96,8 +101,13 @@ function configFor(scope: Scope, root: string): Config {
 		keepMonths: null,
 		explanationLanguage: "English",
 		digestExport: null,
+		combinedDigest: null,
 		path: null,
 	};
+}
+
+function targetFor(scope: Scope): DigestTarget {
+	return { name: scope.name, store: scope.store, sources: [scope] };
 }
 
 function makeRecord(
@@ -173,7 +183,12 @@ function response(
 	patterns: { id: string; name: string; rule: string; findingIds: string[] }[],
 ) {
 	return {
-		patterns,
+		patterns: patterns.map((pattern) => ({
+			...pattern,
+			explanation: "A singular subject such as “this” takes “is”.",
+			tip: "Find the subject, then check the verb.",
+			practice: [{ sentence: "This are fine.", answer: "This is fine." }],
+		})),
 		lesson: "Use a singular verb with a singular subject.",
 		focus: "Check each subject and verb before sending the Prompt.",
 	};
@@ -327,7 +342,7 @@ describe("runDigest", () => {
 		await utimes(lock, staleTime, staleTime);
 		const fake = fakeGrader([]);
 		const result = await runDigest(
-			scope,
+			targetFor(scope),
 			configFor(scope, target.root),
 			fake.grader,
 			new Date(endingFriday.getTime()),
@@ -407,7 +422,7 @@ describe("runDigest", () => {
 			]),
 		]);
 		const result = await runDigest(
-			scope,
+			targetFor(scope),
 			configFor(scope, target.root),
 			fake.grader,
 			new Date(endingFriday.getTime()),
@@ -438,7 +453,7 @@ describe("runDigest", () => {
 		expect(digest.patterns[0].examples).toHaveLength(1);
 		const html = await readFile(path.join(target.store, "digest.html"), "utf8");
 		expect(html).toContain('<base href="digests/">');
-		expect(html).toContain("Recurring Patterns");
+		expect(html).toContain("Your patterns");
 		expect(html).toContain("Grader changed this week:");
 		expect(html).toContain("Last Digest counts");
 	});
@@ -476,7 +491,7 @@ describe("runDigest", () => {
 			]);
 			const fake = fakeGrader([invalidCase.invalid, invalidCase.invalid]);
 			const result = await runDigest(
-				scope,
+				targetFor(scope),
 				configFor(scope, target.root),
 				fake.grader,
 				new Date(endingFriday.getTime()),
@@ -518,7 +533,7 @@ describe("runDigest", () => {
 			]),
 		]);
 		const result = await runDigest(
-			scope,
+			targetFor(scope),
 			configFor(scope, target.root),
 			fake.grader,
 			new Date(endingFriday.getTime()),
@@ -540,7 +555,7 @@ describe("runDigest", () => {
 			},
 		]);
 		const result = await runDigest(
-			scope,
+			targetFor(scope),
 			configFor(scope, target.root),
 			fakeGrader([]).grader,
 			new Date(endingFriday.getTime()),
@@ -592,14 +607,14 @@ describe("runDigest", () => {
 		const config = configFor(scope, target.root);
 		const now = new Date(endingFriday.getTime());
 		const together = await Promise.all([
-			runDigest(scope, config, fake.grader, now),
-			runDigest(scope, config, fake.grader, now),
+			runDigest(targetFor(scope), config, fake.grader, now),
+			runDigest(targetFor(scope), config, fake.grader, now),
 		]);
 		expect(together.map(({ kind }) => kind).sort()).toEqual([
 			"locked",
 			"written",
 		]);
-		const later = await runDigest(scope, config, fake.grader, now);
+		const later = await runDigest(targetFor(scope), config, fake.grader, now);
 		expect(later).toEqual({ kind: "current", week: "2026-10-02" });
 		expect(fake.requests).toHaveLength(1);
 	});
@@ -630,14 +645,141 @@ describe("runDigest", () => {
 		await mkdir(path.join(blocker, "occupied"), { recursive: true });
 		const config = configFor(scope, target.root);
 		const now = new Date(endingFriday.getTime());
-		const failed = await runDigest(scope, config, fake.grader, now);
+		const failed = await runDigest(targetFor(scope), config, fake.grader, now);
 		expect(failed.kind).toBe("failed");
 		await expect(
 			readFile(path.join(target.store, "digests", "2026-10-02.json"), "utf8"),
 		).rejects.toThrow();
 
 		await rm(blocker, { recursive: true });
-		const retried = await runDigest(scope, config, fake.grader, now);
+		const retried = await runDigest(targetFor(scope), config, fake.grader, now);
 		expect(retried.kind).toBe("written");
+	});
+
+	test("a combined Digest reads every Scope, runs only in its profile, and replaces per-Scope Digests", async () => {
+		const target = await fixture();
+		const work = {
+			...scopeFor(path.join(target.root, "work"), "work", null),
+			reviewProfile: "default",
+		};
+		const personal = {
+			...scopeFor(path.join(target.root, "personal"), "personal", "personal"),
+			index: 1,
+		};
+		const promptDate = new Date(
+			endingFriday.getFullYear(),
+			endingFriday.getMonth(),
+			endingFriday.getDate() - 1,
+			13,
+		);
+		await putRecords(work.store, [
+			makeRecord(work, "work-1", promptDate, "This are wrong."),
+		]);
+		await putRecords(personal.store, [
+			makeRecord(
+				personal,
+				"personal-1",
+				promptDate,
+				"These are fine, this are not.",
+			),
+		]);
+		const config: Config = {
+			...configFor(work, target.root),
+			scopes: [work, personal],
+			combinedDigest: {
+				profile: "personal",
+				store: path.join(target.root, "all"),
+			},
+		};
+		const now = new Date(endingFriday.getTime());
+		// work's Drainer would digest work on its own; the combined Digest takes that away.
+		expect(
+			await dueDrainerDigests({ profile: "default", now }, config),
+		).toEqual([]);
+		const [combined, ...rest] = await dueDrainerDigests(
+			{ profile: "personal", now },
+			config,
+		);
+		expect(rest).toEqual([]);
+		expect(combined.name).toBe("all");
+
+		const fake = fakeGrader([
+			response([
+				{
+					id: "agreement",
+					name: "Agreement",
+					rule: "A singular subject takes a singular verb.",
+					findingIds: ["work-1:1", "personal-1:1"],
+				},
+			]),
+		]);
+		const result = await runDigest(combined, config, fake.grader, now);
+		expect(result.kind).toBe("written");
+		const sent = JSON.parse(fake.requests[0].user);
+		expect(sent.findings.map(({ id }: { id: string }) => id).sort()).toEqual([
+			"personal-1:1",
+			"work-1:1",
+		]);
+		expect(sent.thisWeek).toMatchObject({ prompts: 2, reviewed: 2 });
+		const digest = JSON.parse(
+			await readFile(
+				path.join(target.root, "all", "digests", "2026-10-02.json"),
+				"utf8",
+			),
+		);
+		expect(digest.scope).toBe("all");
+		expect(digest.patterns[0]).toMatchObject({
+			count: 2,
+			tip: "Find the subject, then check the verb.",
+			practice: [{ sentence: "This are fine.", answer: "This is fine." }],
+		});
+		for (const scope of [work, personal])
+			await expectNoDigestFiles(scope.store);
+		const html = await readFile(
+			path.join(target.root, "all", "digest.html"),
+			"utf8",
+		);
+		expect(html).toContain("<h1>English Digest</h1>");
+		expect(html).toContain("Before you send");
+		expect(html).toContain("<summary>answer</summary>");
+	});
+
+	test("rejects a Pattern of two or more Findings that has no explanation", async () => {
+		const target = await fixture();
+		const scope = scopeFor(target.store);
+		const promptDate = new Date(
+			endingFriday.getFullYear(),
+			endingFriday.getMonth(),
+			endingFriday.getDate() - 1,
+			13,
+		);
+		await putRecords(target.store, [
+			makeRecord(scope, "prompt-1", promptDate, "This are wrong."),
+			makeRecord(scope, "prompt-2", promptDate, "That are wrong."),
+		]);
+		const untaught = {
+			...response([]),
+			patterns: [
+				{
+					id: "agreement",
+					name: "Agreement",
+					rule: "A singular subject takes a singular verb.",
+					findingIds: ["prompt-1:1", "prompt-2:1"],
+					explanation: "",
+					tip: "",
+					practice: [],
+				},
+			],
+		};
+		const fake = fakeGrader([untaught, untaught]);
+		const result = await runDigest(
+			targetFor(scope),
+			configFor(scope, target.root),
+			fake.grader,
+			new Date(endingFriday.getTime()),
+		);
+		expect(result.kind).toBe("failed");
+		expect(fake.requests[1].user).toContain("needs a non-empty explanation");
+		await expectNoDigestFiles(target.store);
 	});
 });

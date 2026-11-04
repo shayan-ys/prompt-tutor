@@ -103,6 +103,7 @@ async function setup(scopeNames = ["work", "personal"]): Promise<{
 			keepMonths: null,
 			explanationLanguage: "English",
 			digestExport: path.join(root, "export"),
+			combinedDigest: null,
 			path: null,
 		},
 	};
@@ -224,5 +225,33 @@ describe("digest_export config", () => {
 			env,
 		);
 		expect(inside.ok).toBe(false);
+	});
+});
+
+describe("combined_digest config", () => {
+	const env = { ...process.env, HOME: "/home/u", XDG_DATA_HOME: "/data" };
+	const parse = (yaml: string) =>
+		parseConfig(
+			`scopes:\n  - name: work\n  - name: personal\n${yaml}`,
+			"/cfg/config.yml",
+			env,
+		);
+
+	test("defaults the store beside the all-Scopes log", () => {
+		const parsed = parse("combined_digest:\n  profile: personal\n");
+		expect(parsed.ok && parsed.config.combinedDigest).toEqual({
+			profile: "personal",
+			store: "/data/prompt-tutor/all",
+		});
+	});
+
+	test("rejects a missing profile, an unknown key, and a store overlapping a Scope", () => {
+		for (const yaml of [
+			"combined_digest:\n  store: /data/x\n",
+			"combined_digest:\n  profile: personal\n  scope: work\n",
+			"combined_digest:\n  profile: personal\n  store: /data/prompt-tutor/work/all\n",
+			"combined_digest:\n  profile: personal\n  store: /data\n",
+		])
+			expect(parse(yaml).ok).toBe(false);
 	});
 });

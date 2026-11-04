@@ -68,3 +68,45 @@ test("dry-runs and removes only known configured data paths", async () => {
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("removes the combined Digest with the all-Scopes log it shares a directory with", async () => {
+	const root = await mkdtemp(join(tmpdir(), "prompt-tutor-delete-data-"));
+	try {
+		const configHome = join(root, "config");
+		const dataHome = join(root, "data", "prompt-tutor");
+		const combinedStore = join(dataHome, "all");
+		const env = {
+			...process.env,
+			XDG_CONFIG_HOME: configHome,
+			XDG_DATA_HOME: join(root, "data"),
+		};
+		await mkdir(join(configHome, "prompt-tutor"), { recursive: true });
+		await writeFile(
+			join(configHome, "prompt-tutor", "config.yml"),
+			"scopes:\n  - name: work\n  - name: personal\ncombined_digest:\n  profile: personal\n",
+		);
+		const knownPaths = [
+			join(combinedStore, "digests", "2026-10-30.json"),
+			join(combinedStore, "digests", "2026-10-30.html"),
+			join(combinedStore, "digest.html"),
+			join(combinedStore, "log", "2026-10.html"),
+		];
+		for (const path of knownPaths) {
+			await mkdir(join(path, ".."), { recursive: true });
+			await writeFile(path, "known data");
+		}
+
+		const dryRun = await deleteData({ env });
+		if ("error" in dryRun) throw new Error(dryRun.error);
+		expect(dryRun.unknown).toEqual([]);
+		expect(dryRun.paths).toContain(combinedStore);
+
+		await deleteData({ env, yes: true });
+		expect(await Bun.file(join(combinedStore, "digest.html")).exists()).toBe(
+			false,
+		);
+		await expect(readFile(knownPaths[0], "utf8")).rejects.toThrow();
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});

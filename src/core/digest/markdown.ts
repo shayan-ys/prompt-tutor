@@ -77,10 +77,26 @@ function patternSection(pattern: DigestPattern, rank: number): string {
 		"",
 		prose(pattern.rule),
 	];
+	if (pattern.explanation) lines.push("", prose(pattern.explanation));
+	if (pattern.tip)
+		lines.push("", `**Check before sending:** ${inline(pattern.tip)}`);
 	if (pattern.examples.length) {
 		lines.push(
 			"",
-			...pattern.examples.map((finding) => `- ${example(finding, false)}`),
+			...pattern.examples
+				.slice(0, 6)
+				.map((finding) => `- ${example(finding, false)}`),
+		);
+	}
+	if (pattern.practice?.length) {
+		lines.push(
+			"",
+			"Practice:",
+			"",
+			...pattern.practice.map(
+				(exercise, index) =>
+					`${index + 1}. ${inline(exercise.sentence)} → **${inline(exercise.answer)}**`,
+			),
 		);
 	}
 	return lines.join("\n");
@@ -122,7 +138,8 @@ export function renderDigestMarkdown(
 		`In the ${inline(digest.scope)} Scope, from ${digest.from} to ${digest.week}: ${digest.stats.prompts} Prompts, ${digest.stats.reviewed} reviewed, ${cleanPercent(digest)}% clean${previousClean}. Findings: ${categories}.`,
 	];
 	if (digest.focus) sections.push(`## Focus\n\n${prose(digest.focus)}`);
-	if (digest.lesson) sections.push(`## Lesson\n\n${prose(digest.lesson)}`);
+	if (digest.lesson)
+		sections.push(`## Teacher's note\n\n${prose(digest.lesson)}`);
 	const patterns = recurringPatterns(digest);
 	sections.push(
 		patterns.length

@@ -23,32 +23,49 @@ import {
 	renderContext,
 } from "./history.ts";
 import { renderDigest } from "./render.ts";
+import { digestTargets } from "./targets.ts";
 import type {
 	DigestArchive,
 	DigestFinding,
 	DigestGraderVersion,
 	DigestPattern,
+	DigestPractice,
 	DigestStats,
+	DigestTarget,
 } from "./types.ts";
 
 const CATEGORY_ORDER = ["spelling", "grammar", "fluency"] as const;
 const LOCK_STALE_AFTER_MS = 10 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+/** Patterns that get an explanation, tip, and practice; caps the Digest's output in a busy week. */
+const TAUGHT_PATTERNS = 8;
 
-export const DIGEST_PROMPT = `You are an English tutor analysing stored language Findings from one week. You receive no full Prompts and no session context.
+export const DIGEST_PROMPT = `You are an experienced English teacher writing weekly written feedback for one adult learner. The learner is advanced but makes recurring mistakes when typing quickly to AI coding agents. You receive one week of language Findings (each with its containing sentence, the quoted error, the fix, and a short reason), this week's counts, and the Patterns, counts, and focus of earlier weeks. You receive no full Prompts and no session context.
 
-Group every supplied Finding id into exactly one Pattern. Every id must appear once: do not omit, duplicate, or invent ids. A Pattern describes one underlying language rule or error. The Findings' free-text kinds are hints, not stable labels: different kinds can describe the same Pattern, and one kind can cover different Patterns. Group by the language issue shown by the quote, fix, and containing sentence. Reuse a prior Pattern id exactly when the underlying issue is the same; otherwise invent a short, stable kebab-case id. Do not match by name alone.
+GROUPING. Group every supplied Finding id into exactly one Pattern. Every id must appear once: do not omit, duplicate, or invent ids. A Pattern describes one underlying language rule or error. The Findings' free-text kinds are hints, not stable labels: different kinds can describe the same Pattern, and one kind can cover different Patterns. Group by the language issue shown by the quote, fix, and containing sentence. Reuse a prior Pattern id exactly when the underlying issue is the same; otherwise invent a short, stable kebab-case id. Do not match by name alone. Prefer teachable Patterns: one rule the learner can learn and check, not a catch-all bucket.
 
-For each Pattern provide a concise name and a short, accurate rule. Write a brief lesson about the most important one or two Patterns, using corrected sentences drawn from the supplied Findings and ending with one thing to practise. If there are no Findings, say that no language errors were found and suggest a simple way to keep the prompts clear; do not invent errors. Write one concise paragraph for what to focus on next. Keep the lesson under 120 words and the focus paragraph under 60 words. Return the complete result using the required tool.`;
+STYLE. The learner reads this on a phone between tasks. Be brief and concrete: short sentences, no filler, no praise padding, no paragraphs where a list will do. The page already shows every example, count, and trend, so do not repeat them in prose.
+
+EACH PATTERN. Give a concise name (at most five words) and a one-sentence rule under 20 words. For each of the ${TAUGHT_PATTERNS} Patterns with the most Findings, among those with two or more, also write:
+- explanation: 25 to 60 words. Say how the rule works and contrast one of the learner's wrong forms with the right one. Name a confusable case only when it matters. No grammar jargon the learner does not need.
+- tip: one self-check under 20 words that the learner can apply while rereading a prompt.
+- practice: three new sentences under 15 words each, in the topics and register of the learner's prompts, each containing exactly this Pattern's error, with its corrected answer. Do not copy the learner's sentences.
+For every other Pattern, set explanation and tip to empty strings and practice to an empty list. Keep to these limits even in a week with many Findings.
+
+LESSON. Write the teacher's note as three to five lines, each starting with "- " and under 25 words, with no other text. The first line says what improved or held steady, using numbers from this week and earlier weeks, and whether last week's focus shows progress. The other lines name the habits that matter most this week, each with one short corrected example.
+
+FOCUS. One sentence under 25 words: the single habit to practise next week.
+
+If there are no Findings, say that no language errors were found and suggest one way to keep the prompts clear; do not invent errors. Return the complete result using the required tool.`;
 export function digestPromptForLanguage(language: string): string {
 	if (language.toLowerCase() === "english") return DIGEST_PROMPT;
-	return `${DIGEST_PROMPT}\n\nLANGUAGE. English remains the target language. Write Pattern names and rules, the lesson, and the focus paragraph in ${language}. Keep quoted sentences and corrected example sentences in English.`;
+	return `${DIGEST_PROMPT}\n\nLANGUAGE. English remains the target language. Write Pattern names, rules, explanations and tips, the lesson, and the focus paragraph in ${language}. Keep quoted sentences, corrected example sentences, and practice sentences and answers in English.`;
 }
 
 export const DIGEST_TOOL: GraderTool = {
 	name: "submit_digest",
 	description:
-		"Submit the grouped Patterns, brief lesson, and focus paragraph for this weekly Digest.",
+		"Submit the grouped Patterns with their teaching, the teacher's note, and the focus paragraph for this weekly Digest.",
 	strict: true,
 	parameters: {
 		type: "object",
@@ -64,8 +81,30 @@ export const DIGEST_TOOL: GraderTool = {
 						name: { type: "string", minLength: 1 },
 						rule: { type: "string", minLength: 1 },
 						findingIds: { type: "array", items: { type: "string" } },
+						explanation: { type: "string" },
+						tip: { type: "string" },
+						practice: {
+							type: "array",
+							items: {
+								type: "object",
+								additionalProperties: false,
+								properties: {
+									sentence: { type: "string", minLength: 1 },
+									answer: { type: "string", minLength: 1 },
+								},
+								required: ["sentence", "answer"],
+							},
+						},
 					},
-					required: ["id", "name", "rule", "findingIds"],
+					required: [
+						"id",
+						"name",
+						"rule",
+						"findingIds",
+						"explanation",
+						"tip",
+						"practice",
+					],
 				},
 			},
 			lesson: { type: "string", minLength: 1 },
@@ -90,6 +129,9 @@ interface ModelPattern {
 	name: string;
 	rule: string;
 	findingIds: string[];
+	explanation: string;
+	tip: string;
+	practice: DigestPractice[];
 }
 
 interface ValidDigest {
@@ -171,22 +213,41 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** The Scopes among `scopes` whose Digest for the week ending at `now` is not yet written. */
-async function staleScopes(scopes: Scope[], now: Date): Promise<Scope[]> {
+/** The targets among `targets` whose Digest for the week ending at `now` is not yet written. */
+async function staleTargets(
+	targets: DigestTarget[],
+	now: Date,
+): Promise<DigestTarget[]> {
 	const week = localDate(latestEndedFriday(now));
-	const stale: Scope[] = [];
-	for (const scope of scopes) {
-		const digestPath = path.join(scope.store, "digests", `${week}.json`);
-		if (!(await pathExists(digestPath))) stale.push(scope);
+	const stale: DigestTarget[] = [];
+	for (const target of targets) {
+		const digestPath = path.join(target.store, "digests", `${week}.json`);
+		if (!(await pathExists(digestPath))) stale.push(target);
 	}
 	return stale;
 }
 
-/** Return the stale configured Scopes this session is allowed to digest. */
+/**
+ * The Digests `allowed` admits: the combined Digest when `combined_digest` names `profile`, or
+ * else each Scope's Digest that `allowed` accepts. A combined Digest replaces every per-Scope one.
+ */
+function permittedTargets(
+	config: Config,
+	profile: string,
+	allowed: (scope: Scope) => boolean,
+): DigestTarget[] {
+	if (config.combinedDigest !== null)
+		return config.combinedDigest.profile === profile
+			? digestTargets(config)
+			: [];
+	return digestTargets(config).filter((target) => allowed(target.sources[0]));
+}
+
+/** Return the stale Digests this session is allowed to build. */
 export async function dueDigests(
 	at: { profile: string; cwd: string; now: Date },
 	opts?: { env?: NodeJS.ProcessEnv },
-): Promise<Scope[]> {
+): Promise<DigestTarget[]> {
 	const result = await loadConfig({ env: opts?.env });
 	if (!result.ok) return [];
 
@@ -194,11 +255,11 @@ export async function dueDigests(
 		profile: at.profile,
 		cwd: at.cwd,
 	});
-	const candidates = result.config.scopes.filter((scope) => {
+	const candidates = permittedTargets(result.config, at.profile, (scope) => {
 		if (scope.digestProfile === at.profile) return true;
 		return scope.digestProfile === null && scopeMatches(resolved, scope);
 	});
-	return staleScopes(candidates, at.now);
+	return staleTargets(candidates, at.now);
 }
 
 /**
@@ -214,13 +275,15 @@ export function drainerMayDigest(scope: Scope, profile: string): boolean {
 	);
 }
 
-/** Return the stale Scopes of `config` that a Drainer of `profile` may digest. */
+/** Return the stale Digests of `config` that a Drainer of `profile` may build. */
 export function dueDrainerDigests(
 	at: { profile: string; now: Date },
 	config: Config,
-): Promise<Scope[]> {
-	return staleScopes(
-		config.scopes.filter((scope) => drainerMayDigest(scope, at.profile)),
+): Promise<DigestTarget[]> {
+	return staleTargets(
+		permittedTargets(config, at.profile, (scope) =>
+			drainerMayDigest(scope, at.profile),
+		),
 		at.now,
 	);
 }
@@ -234,13 +297,13 @@ function capturedWithin(record: PromptRecord, start: Date, end: Date): boolean {
 	);
 }
 
-async function readWeekRecords(
+async function readScopeWeek(
 	scope: Scope,
+	firstMonth: string,
+	lastMonth: string,
 	start: Date,
 	end: Date,
 ): Promise<PromptRecord[]> {
-	const firstMonth = localDate(start).slice(0, 7);
-	const lastMonth = localDate(end).slice(0, 7);
 	const months = await listMonths(scope.store);
 	const selectedMonths = months.filter(
 		(month) => month >= firstMonth && month <= lastMonth,
@@ -254,6 +317,21 @@ async function readWeekRecords(
 			(record) =>
 				record.scope === scope.name && capturedWithin(record, start, end),
 		);
+}
+
+async function readWeekRecords(
+	target: DigestTarget,
+	start: Date,
+	end: Date,
+): Promise<PromptRecord[]> {
+	const firstMonth = localDate(start).slice(0, 7);
+	const lastMonth = localDate(end).slice(0, 7);
+	const perScope = await Promise.all(
+		target.sources.map((scope) =>
+			readScopeWeek(scope, firstMonth, lastMonth, start, end),
+		),
+	);
+	return perScope.flat();
 }
 
 function sentenceFor(text: string, start: number, end: number): string {
@@ -413,13 +491,57 @@ function validateDigest(
 					problems.push(`Finding id ${findingId} appears more than once.`);
 				assignedFindings.add(findingId);
 			}
+			const explanation =
+				typeof pattern.explanation === "string"
+					? pattern.explanation.trim()
+					: null;
+			const tip = typeof pattern.tip === "string" ? pattern.tip.trim() : null;
+			if (explanation === null || tip === null)
+				problems.push(
+					`Pattern ${index + 1} needs explanation and tip strings.`,
+				);
+			const practice: DigestPractice[] = [];
+			if (!Array.isArray(pattern.practice))
+				problems.push(`Pattern ${index + 1} practice must be an array.`);
+			else
+				for (const rawExercise of pattern.practice) {
+					const exercise = asObject(rawExercise);
+					const sentence =
+						typeof exercise?.sentence === "string"
+							? exercise.sentence.trim()
+							: "";
+					const answer =
+						typeof exercise?.answer === "string" ? exercise.answer.trim() : "";
+					if (sentence.length === 0 || answer.length === 0)
+						problems.push(
+							`Pattern ${index + 1} practice items need a non-empty sentence and answer.`,
+						);
+					else practice.push({ sentence, answer });
+				}
 			if (id && name && rule)
-				patterns.push({ id, name, rule, findingIds: [...findingIds] });
+				patterns.push({
+					id,
+					name,
+					rule,
+					findingIds: [...findingIds],
+					explanation: explanation ?? "",
+					tip: tip ?? "",
+					practice,
+				});
 		});
 	}
 	for (const id of expectedIds) {
 		if (!assignedFindings.has(id)) problems.push(`Missing Finding id ${id}.`);
 	}
+	const untaught = patterns
+		.filter(({ findingIds }) => findingIds.length >= 2)
+		.toSorted((a, b) => b.findingIds.length - a.findingIds.length)
+		.slice(0, TAUGHT_PATTERNS)
+		.filter(({ explanation, tip }) => !explanation || !tip);
+	for (const pattern of untaught)
+		problems.push(
+			`Pattern ${pattern.id} is among the ${TAUGHT_PATTERNS} largest and needs a non-empty explanation and tip.`,
+		);
 
 	if (problems.length > 0) return { problems };
 	return {
@@ -434,13 +556,22 @@ function validateDigest(
 
 function modelInput(
 	findings: DigestFinding[],
+	stats: DigestStats,
 	history: DigestArchive[],
 ): string {
+	const counts = (digest: Pick<DigestArchive, "stats">) => ({
+		prompts: digest.stats.prompts,
+		reviewed: digest.stats.reviewed,
+		cleanPercent: digest.stats.cleanPercent,
+		categories: digest.stats.categories,
+	});
 	const priorDigests = history
 		.slice(0, 6)
 		.toSorted((a, b) => a.week.localeCompare(b.week))
 		.map((digest) => ({
 			week: digest.week,
+			...counts(digest),
+			focus: digest.focus,
 			patterns: digest.patterns.map(
 				({ id, name, rule, categories, count }) => ({
 					id,
@@ -462,16 +593,21 @@ function modelInput(
 			why,
 		}),
 	);
-	return JSON.stringify({ findings: modelFindings, priorDigests });
+	return JSON.stringify({
+		thisWeek: counts({ stats }),
+		findings: modelFindings,
+		priorDigests,
+	});
 }
 
 async function askForDigest(
 	grader: Grader,
 	findings: DigestFinding[],
+	stats: DigestStats,
 	history: DigestArchive[],
 	explanationLanguage: string,
 ): Promise<{ digest?: ValidDigest; error?: string }> {
-	const initialUser = modelInput(findings, history);
+	const initialUser = modelInput(findings, stats, history);
 	const systemPrompt = digestPromptForLanguage(explanationLanguage);
 	const expectedIds = new Set(findings.map(({ id }) => id));
 	let retryProblems = "";
@@ -519,7 +655,6 @@ function examplesFor(findings: DigestFinding[]): DigestFinding[] {
 		if (seenQuotes.has(quote)) continue;
 		seenQuotes.add(quote);
 		examples.push(finding);
-		if (examples.length === 2) break;
 	}
 	return examples;
 }
@@ -553,6 +688,9 @@ function makePatterns(
 			count: groupedFindings.length,
 			findingIds: [...modelPattern.findingIds],
 			examples: examplesFor(groupedFindings),
+			explanation: modelPattern.explanation,
+			tip: modelPattern.tip,
+			practice: modelPattern.practice,
 			recurring,
 			previousCount: previousPattern?.count ?? null,
 			trend: [
@@ -617,7 +755,7 @@ async function releaseLock(lockPath: string, token: string): Promise<void> {
 
 function emptyDigest(
 	week: string,
-	scope: Scope,
+	target: DigestTarget,
 	from: Date,
 	stats: DigestStats,
 	versions: DigestGraderVersion[],
@@ -625,7 +763,7 @@ function emptyDigest(
 	return {
 		version: FORMAT_VERSION,
 		week,
-		scope: scope.name,
+		scope: target.name,
 		from: localDate(from),
 		stats,
 		graderVersions: versions,
@@ -636,9 +774,9 @@ function emptyDigest(
 	};
 }
 
-/** Generate the current weekly Digest behind an exclusive, expiring Scope lock. */
+/** Generate the current weekly Digest behind an exclusive, expiring lock in the target's store. */
 export async function runDigest(
-	scope: Scope,
+	target: DigestTarget,
 	config: Config,
 	grader: Grader,
 	now: Date,
@@ -649,7 +787,7 @@ export async function runDigest(
 	| { kind: "locked" }
 	| { kind: "failed"; error: string }
 > {
-	const digestDirectory = path.join(scope.store, "digests");
+	const digestDirectory = path.join(target.store, "digests");
 	const lockPath = path.join(digestDirectory, ".lock");
 	let lockToken: string | null = null;
 	try {
@@ -665,22 +803,23 @@ export async function runDigest(
 		const jsonPath = path.join(digestDirectory, `${week}.json`);
 		if (await pathExists(jsonPath)) return { kind: "current", week };
 
-		const records = await readWeekRecords(scope, start, ending);
+		const records = await readWeekRecords(target, start, ending);
 		const findings = collectFindings(records);
 		const stats = makeStats(records, findings);
 		const versions = graderVersions(records);
 		if (stats.reviewed === 0) {
 			await writeFileAtomic(
 				jsonPath,
-				`${JSON.stringify(emptyDigest(week, scope, start, stats, versions), null, 2)}\n`,
+				`${JSON.stringify(emptyDigest(week, target, start, stats, versions), null, 2)}\n`,
 			);
 			return { kind: "empty", week };
 		}
 
-		const history = await readHistory(scope.store, week);
+		const history = await readHistory(target.store, week);
 		const modelResult = await askForDigest(
 			grader,
 			findings,
+			stats,
 			history.priorDigests,
 			config.explanationLanguage,
 		);
@@ -699,7 +838,7 @@ export async function runDigest(
 		const archive: DigestArchive = {
 			version: FORMAT_VERSION,
 			week,
-			scope: scope.name,
+			scope: target.name,
 			from: localDate(start),
 			stats,
 			graderVersions: versions,
@@ -712,7 +851,7 @@ export async function runDigest(
 		const htmlPath = path.join(digestDirectory, `${week}.html`);
 		await writeFileAtomic(htmlPath, html);
 		await writeFileAtomic(
-			path.join(scope.store, "digest.html"),
+			path.join(target.store, "digest.html"),
 			baseCopy(html),
 		);
 		// Written last: if an earlier write fails, the week stays stale and the next session retries.

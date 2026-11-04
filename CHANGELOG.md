@@ -20,9 +20,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - `prompt-tutor drain` starts the Drainer, which reviews queued Claude Code Prompts in a headless omp process for each configured `review_profile`, using that profile's `@task`. A Scope's new `review_profile` setting has no default; without it, its Claude Code Prompts stay queued.
 - The Watcher shows a Claude Code Prompt as queued until a Drainer holds its Scope's `drain.lock`.
 - `digest_export` and `prompt-tutor export-digests` copy every Scope's Digests to a directory as Markdown notes with frontmatter, HTML pages, and an `_index.md`, so a notes vault or an assistant that searches it can read them.
+- `combined_digest: { profile, store? }` builds one weekly Digest over every Scope, at `all/digest.html` by default, in place of the per-Scope Digests. Only that profile's sessions and Drainer build it, so every Scope's Findings go to its `@advisor` (ADR 0012).
 
 ### Changed
-- The Digest page fits a phone screen: below 760 px each recurring Pattern is a card with its counts and trend on one line and its examples at full width, instead of a table that scrolls sideways. The lesson keeps its line breaks.
+- The Digest teaches, briefly and visually: a bulleted teacher's note opens with progress against earlier weeks, a bar chart ranks the recurring Patterns, and each of the eight largest gets a card with a short explanation, a self-check tip, your own examples (four shown, the rest and each reason folded), and three practice sentences with hidden answers. Other recurring Patterns are compact rows. This replaces the 120-word lesson, the ranked table, and two examples per Pattern. The page fits a phone screen.
 
 ### Fixed
 - A Scope whose Prompts come from Claude Code now gets its weekly Digest. The Drainer builds the Digests of its profile's Scopes (those with that `digest_profile`, or with no `digest_profile` and that `review_profile`), at start and then hourly, using its `@advisor`, and logs the result. Headless omp runs no longer start a Digest at `session_start`, which left an orphaned lock and no Digest; only interactive main-agent sessions do.
