@@ -156,6 +156,7 @@ export interface CaptureInput {
 export type CaptureResult =
 	| { kind: "config_error"; error: string }
 	| { kind: "no_scope" }
+	| { kind: "ignored" }
 	/** Record already written (pending, or skipped) with stubs and the month's log rebuilt. */
 	| { kind: "captured"; record: PromptRecord; scope: Scope; config: Config };
 

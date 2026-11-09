@@ -18,6 +18,7 @@ import {
 	chipText,
 	drainQueue,
 	dueDigests,
+	isAgentMessage,
 	loadConfig,
 	pruneExpiredMonths,
 	review,
@@ -348,6 +349,7 @@ export default function promptTutor(pi: ExtensionAPI): void {
 
 	pi.on("input", (event, ctx) => {
 		if (event.source !== "interactive" || ctx.agent.kind !== "main") return;
+		if (isAgentMessage(event.text)) return;
 
 		const sequence = ++latestPrompt;
 		schedule(ctx, async () => {
@@ -358,6 +360,7 @@ export default function promptTutor(pi: ExtensionAPI): void {
 					cwd: ctx.cwd,
 					now: new Date(),
 				});
+				if (result.kind === "ignored") return;
 				if (result.kind === "config_error") {
 					notifyScopeError(
 						ctx,

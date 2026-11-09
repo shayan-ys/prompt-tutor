@@ -10,10 +10,19 @@ import {
 	type PromptRecord,
 } from "./types.ts";
 
+// Herdr messages are transport, not Prompts; ignore optional harness notices too.
+export function isAgentMessage(text: string): boolean {
+	return text
+		.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gu, "")
+		.trimStart()
+		.startsWith("<hc");
+}
+
 export async function capture(
 	input: CaptureInput,
 	opts: { env?: NodeJS.ProcessEnv } = {},
 ): Promise<CaptureResult> {
+	if (isAgentMessage(input.text)) return { kind: "ignored" };
 	const result = await loadConfig({ env: opts.env });
 	if (!result.ok) return { kind: "config_error", error: result.error };
 	const profile = input.profile || "default";

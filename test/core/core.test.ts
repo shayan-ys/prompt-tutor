@@ -226,6 +226,60 @@ describe("prompt preprocessing", () => {
 		);
 	});
 
+	test("ignores Herdr messages without storing them, but keeps a later tag", async () => {
+		const root = await mkdtemp(join(tmpdir(), "prompt-tutor-herdr-"));
+		try {
+			const env = {
+				HOME: root,
+				XDG_CONFIG_HOME: join(root, "config"),
+				XDG_DATA_HOME: join(root, "data"),
+			};
+			const input = {
+				profile: "default",
+				cwd: root,
+				now: new Date("2026-10-08T14:15:02.123Z"),
+			};
+			for (const text of [
+				' \n<hc from="t9v">please check the build</hc>',
+				"<hc>see this</hc>",
+				"<hcx>also starts with the transport prefix",
+				"<system-reminder>harness note</system-reminder>\n<hc from=x>hi</hc>",
+			]) {
+				expect(await capture({ ...input, text }, { env })).toEqual({
+					kind: "ignored",
+				});
+			}
+			const text = "they sent <hc from=x> earlier";
+			const kept = await capture({ ...input, text }, { env });
+			expect(kept.kind).toBe("captured");
+			if (kept.kind !== "captured") throw new Error("Expected capture");
+			expect(
+				(await readMonth(kept.scope.store, kept.record.log_month)).map(
+					(record) => ({
+						id: record.id,
+						text: record.text,
+						state: record.state,
+					}),
+				),
+			).toEqual([{ id: kept.record.id, text, state: "pending" }]);
+			expect(kept.record.text).toBe(text);
+			expect(kept.record.state).toBe("pending");
+			expect(
+				(
+					await capture(
+						{
+							...input,
+							text: "<system-reminder>a</system-reminder>Explain this <system-reminder>b</system-reminder><hc from=x>",
+						},
+						{ env },
+					)
+				).kind,
+			).toBe("captured");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("omits URLs only from counting and applies both skip reasons", () => {
 		expect(preprocess("/command https://example.test/path")).toEqual({
 			text: "https://example.test/path",

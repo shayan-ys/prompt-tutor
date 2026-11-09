@@ -1,4 +1,4 @@
-export { capture } from "./capture.ts";
+export { capture, isAgentMessage } from "./capture.ts";
 export { chipText } from "./chip.ts";
 export { loadConfig, parseConfig } from "./config.ts";
 export { deleteData } from "./delete-data.ts";
