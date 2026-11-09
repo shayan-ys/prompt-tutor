@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { isAgentMessage } from "../../src/core/capture.ts";
 
 type TestOutcome = { record: { id: string; state: string } };
 
@@ -38,6 +39,7 @@ mock.module("../../src/core/index.ts", () => ({
 	chipText,
 	drainQueue,
 	dueDigests,
+	isAgentMessage,
 	loadConfig,
 	pruneExpiredMonths,
 	review,
@@ -116,6 +118,12 @@ test("input passes through synchronously, filters sources and agents, and ignore
 	expect(review).toHaveBeenCalledTimes(2);
 	expect(statuses.at(-1)?.[1]).toContain("newest");
 
+	input(
+		{ source: "interactive", text: " \n<hc from=x>agent update</hc>" },
+		fakeCtx,
+	);
+	expect(timers).toHaveLength(2);
+
 	const olderId = [...pendingReviews.keys()].find((id) => id.includes("older"));
 	const newestId = [...pendingReviews.keys()].find((id) =>
 		id.includes("newest"),
@@ -132,6 +140,7 @@ test("input passes through synchronously, filters sources and agents, and ignore
 	});
 	await flushMicrotasks();
 	expect(statuses.at(-1)?.[1]).toContain("newest");
+	expect(statuses.at(-1)?.[1]).toBe(`reviewed:${newestId}`);
 	expect(notifications).toHaveLength(0);
 });
 
