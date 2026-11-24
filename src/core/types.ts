@@ -70,6 +70,11 @@ export interface PromptRecord {
 	failure?: string;
 	/** ISO 8601 UTC, set when the state leaves `pending`. */
 	settled_at?: string;
+	/**
+	 * Set by `prompt-tutor regrade` on a `failed` record it returns to `pending`, so the Scope's
+	 * Drainer reviews it whatever its harness (ADR 0013). Removed when the Review settles.
+	 */
+	regrade?: true;
 }
 
 /** One `when` entry: all keys present must match (AND). Entries are ORed. */
@@ -105,9 +110,14 @@ export interface Config {
 	digestExport: string | null;
 	/**
 	 * One Digest over every Scope's Prompts, built only by `profile`, stored in `store`; null keeps
-	 * one Digest per Scope. When set, no per-Scope Digest is built (ADR 0012).
+	 * one Digest per Scope. When set, the only per-Scope Digests built are those of the Scopes
+	 * named in `scopeDigests`, in config order (ADR 0012, amended).
 	 */
-	combinedDigest: { profile: string; store: string } | null;
+	combinedDigest: {
+		profile: string;
+		store: string;
+		scopeDigests: string[];
+	} | null;
 	/** Absolute config path, or null when no config file exists (one Scope named `default`). */
 	path: string | null;
 }

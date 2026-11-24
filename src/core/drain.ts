@@ -10,7 +10,7 @@ import {
 	releaseDrainLockSync,
 } from "./drain-lock.ts";
 import { review } from "./review.ts";
-import { listMonths, readMonth, readRecord } from "./store.ts";
+import { awaitsDrainer, listMonths, readMonth, readRecord } from "./store.ts";
 import type {
 	Grader,
 	GraderRequest,
@@ -53,13 +53,12 @@ function abortable(grader: Grader, signal: AbortSignal): Grader {
 	};
 }
 
-/** Queued Claude Code records of one store, oldest first, across all months. */
+/** Records of one store that wait for a Drainer, oldest first, across all months. */
 export async function queuedRecords(store: string): Promise<PromptRecord[]> {
 	const queued: PromptRecord[] = [];
 	for (const month of await listMonths(store)) {
 		for (const record of await readMonth(store, month)) {
-			if (record.state === "pending" && record.harness === "claude-code")
-				queued.push(record);
+			if (awaitsDrainer(record)) queued.push(record);
 		}
 	}
 	return queued.sort(
@@ -95,7 +94,7 @@ interface HeldScope {
 }
 
 /**
- * Drains queued Claude Code records of this profile's Scopes until `signal` aborts, and builds
+ * Drains the queued records (`awaitsDrainer`) of this profile's Scopes until `signal` aborts, and builds
  * the weekly Digests this profile may run. Never throws: errors are logged and the loops continue.
  */
 export async function drainQueue(options: DrainOptions): Promise<void> {
@@ -180,10 +179,9 @@ export async function drainQueue(options: DrainOptions): Promise<void> {
 					log(`lost drain lock for ${scope.name}`);
 					break;
 				}
-				// The file may have settled since it was listed; never regrade it.
+				// The file may have settled since it was listed; never grade it twice.
 				const record = await readRecord(scope.store, queued);
-				if (record?.state !== "pending" || record.harness !== "claude-code")
-					continue;
+				if (record === null || !awaitsDrainer(record)) continue;
 				try {
 					const outcome = await review(
 						{ kind: "captured", record, scope, config },

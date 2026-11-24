@@ -1,6 +1,11 @@
 import { expect, mock, test } from "bun:test";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+} from "@oh-my-pi/pi-coding-agent";
 import { isAgentMessage } from "../../src/core/capture.ts";
+import { digestWeeksSince } from "../../src/core/digest/index.ts";
 
 type TestOutcome = { record: { id: string; state: string } };
 
@@ -37,6 +42,7 @@ const drainQueue = mock(async () => {});
 mock.module("../../src/core/index.ts", () => ({
 	capture,
 	chipText,
+	digestWeeksSince,
 	drainQueue,
 	dueDigests,
 	isAgentMessage,
@@ -194,4 +200,71 @@ test("session_start builds a Digest only in an interactive main-agent session", 
 	}
 	await start("tui", { kind: "sub" });
 	expect(dueDigests).not.toHaveBeenCalled();
+});
+
+test("/prompt-tutor digest --since builds each missing week oldest first and reports on stderr without a UI", async () => {
+	let handler:
+		| ((args: string, ctx: ExtensionCommandContext) => Promise<void>)
+		| undefined;
+	const pi = {
+		on: () => undefined,
+		registerCommand: (_name: string, options: { handler: typeof handler }) => {
+			handler = options.handler;
+		},
+	} as unknown as ExtensionAPI;
+	promptTutor(pi);
+	if (!handler) throw new Error("/prompt-tutor was not registered.");
+	loadConfig.mockImplementation((async () => ({
+		ok: true as const,
+		config: { scopes: [] },
+	})) as unknown as typeof loadConfig);
+	const target = { name: "personal", store: "/store", sources: [] };
+	dueDigests.mockClear();
+	dueDigests.mockImplementation((async () => [target]) as never);
+	runDigest.mockClear();
+	runDigest.mockImplementation((async () => ({
+		kind: "written" as const,
+		week: "w",
+		htmlPath: "/store/digests/w.html",
+	})) as never);
+	const stderr: string[] = [];
+	const write = process.stderr.write;
+	process.stderr.write = ((chunk: string) => {
+		stderr.push(chunk);
+		return true;
+	}) as typeof process.stderr.write;
+	const now = new Date();
+	const since = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 21);
+	const sinceText = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, "0")}-${String(since.getDate()).padStart(2, "0")}`;
+	const ctx = {
+		cwd: "/fixture",
+		hasUI: false,
+		ui: { notify: () => undefined },
+		models: { resolve: () => undefined },
+		modelRegistry: { resolver: () => undefined },
+		sessionManager: { getSessionId: () => "test-session" },
+	} as unknown as ExtensionCommandContext;
+	try {
+		await handler(`digest --since ${sinceText}`, ctx);
+		await handler("digest --since soon", ctx);
+	} finally {
+		process.stderr.write = write;
+	}
+
+	const weeks = digestWeeksSince(sinceText, now);
+	expect(weeks.length).toBeGreaterThanOrEqual(2);
+	expect((dueDigests.mock.calls as unknown[][]).map(([at]) => at)).toEqual(
+		weeks.map((week) => ({
+			profile: process.env.OMP_PROFILE ?? "default",
+			cwd: "/fixture",
+			now: week,
+		})),
+	);
+	expect((runDigest.mock.calls as unknown[][]).map((call) => call[3])).toEqual(
+		weeks,
+	);
+	expect(stderr.filter((line) => line.includes("written"))).toHaveLength(
+		weeks.length,
+	);
+	expect(stderr.at(-1)).toContain("Invalid date");
 });

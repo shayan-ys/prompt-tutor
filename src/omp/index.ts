@@ -16,6 +16,7 @@ import type {
 import {
 	capture,
 	chipText,
+	digestWeeksSince,
 	drainQueue,
 	dueDigests,
 	isAgentMessage,
@@ -225,6 +226,102 @@ async function installWatcher(
 	ctx.ui.notify(linkPath, "info");
 }
 
+/** A command's notice: the UI in a terminal session, stderr in print mode, which has no UI. */
+function commandNotice(
+	ctx: ExtensionCommandContext,
+	message: string,
+	type: "info" | "warning" | "error" = "info",
+): void {
+	if (ctx.hasUI) ctx.ui.notify(message, type);
+	else process.stderr.write(`prompt-tutor: ${message}\n`);
+}
+
+/**
+ * `/prompt-tutor digest [--since YYYY-MM-DD]`: build the missing Digests this session may build,
+ * routed as at session start (ADR 0007, ADR 0012), for the latest ended week or for every week
+ * since the date. Weeks run oldest first, so each Digest's trends include the weeks before it.
+ */
+async function buildDigests(
+	args: string,
+	ctx: ExtensionCommandContext,
+	profile: string,
+): Promise<void> {
+	const match = /^(?:--since\s+(\S+))?$/u.exec(args);
+	if (!match) {
+		commandNotice(
+			ctx,
+			"Usage: /prompt-tutor digest [--since YYYY-MM-DD]",
+			"warning",
+		);
+		return;
+	}
+	const loaded = await loadConfig();
+	if (!loaded.ok) {
+		commandNotice(ctx, `configuration error: ${loaded.error}`, "error");
+		return;
+	}
+	const now = new Date();
+	const weeks =
+		match[1] === undefined ? [now] : digestWeeksSince(match[1], now);
+	const grader = makeGrader(ctx, DIGEST_GRADER);
+	let ran = 0;
+	for (const week of weeks) {
+		for (const target of await dueDigests({
+			profile,
+			cwd: ctx.cwd,
+			now: week,
+		})) {
+			ran++;
+			const result = await runDigest(target, loaded.config, grader, week);
+			switch (result.kind) {
+				case "written":
+					commandNotice(
+						ctx,
+						`Digest ${target.name} ${result.week} written: ${result.htmlPath}`,
+					);
+					if (result.exportError)
+						commandNotice(
+							ctx,
+							`Digest export failed: ${result.exportError}`,
+							"warning",
+						);
+					break;
+				case "empty":
+					commandNotice(
+						ctx,
+						`Digest ${target.name} ${result.week}: no reviewed Prompts`,
+					);
+					break;
+				case "current":
+					commandNotice(
+						ctx,
+						`Digest ${target.name} ${result.week} already written`,
+					);
+					break;
+				case "locked":
+					commandNotice(
+						ctx,
+						`Digest ${target.name} is being built by another session; run the command again later`,
+						"warning",
+					);
+					break;
+				case "failed":
+					commandNotice(
+						ctx,
+						`Digest ${target.name} failed: ${result.error}`,
+						"error",
+					);
+					break;
+			}
+		}
+	}
+	if (ran === 0)
+		commandNotice(
+			ctx,
+			"No missing Digest that this profile and directory may build.",
+		);
+}
+
 export default function promptTutor(pi: ExtensionAPI): void {
 	let latestPrompt = 0;
 	let scopeErrorNotified = false;
@@ -397,24 +494,35 @@ export default function promptTutor(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("prompt-tutor", {
-		description: "Install the prompt-tutor Watcher on PATH",
+		description:
+			"Install the prompt-tutor Watcher on PATH, or build missing Digests",
 		handler: async (args, ctx) => {
-			const match = /^install-watcher(?:\s+(.+))?$/.exec(args.trim());
-			if (!match) {
-				ctx.ui.notify(
-					"Usage: /prompt-tutor install-watcher [PATH directory]",
-					"warning",
-				);
+			const command = args.trim();
+			const watcher = /^install-watcher(?:\s+(.+))?$/.exec(command);
+			if (watcher) {
+				try {
+					await installWatcher(watcher[1] ?? "", ctx);
+				} catch (error) {
+					ctx.ui.notify(
+						`Could not install prompt-tutor Watcher: ${String(error)}`,
+						"error",
+					);
+				}
 				return;
 			}
-			try {
-				await installWatcher(match[1] ?? "", ctx);
-			} catch (error) {
-				ctx.ui.notify(
-					`Could not install prompt-tutor Watcher: ${String(error)}`,
-					"error",
-				);
+			const digest = /^digest(?:\s+(.*))?$/.exec(command);
+			if (digest) {
+				try {
+					await buildDigests(digest[1]?.trim() ?? "", ctx, profile());
+				} catch (error) {
+					commandNotice(ctx, `Digest failed: ${String(error)}`, "error");
+				}
+				return;
 			}
+			ctx.ui.notify(
+				"Usage: /prompt-tutor install-watcher [PATH directory] | digest [--since YYYY-MM-DD]",
+				"warning",
+			);
 		},
 	});
 }

@@ -169,7 +169,7 @@ describe("drain lock", () => {
 });
 
 describe("queued records", () => {
-	test("only pending Claude Code records, oldest first across months", async () => {
+	test("only pending Claude Code or regrade records, oldest first across months", async () => {
 		const store = join(root, "store");
 		await record(store, { id: "b", captured_at: "2026-10-02T00:00:00.000Z" });
 		await record(store, { id: "a", captured_at: "2026-09-30T00:00:00.000Z" });
@@ -178,6 +178,13 @@ describe("queued records", () => {
 			captured_at: "2026-09-01T00:00:00.000Z",
 			harness: undefined,
 			profile: "work",
+		});
+		await record(store, {
+			id: "omp-regrade",
+			captured_at: "2026-09-03T00:00:00.000Z",
+			harness: undefined,
+			profile: "work",
+			regrade: true,
 		});
 		await record(store, {
 			id: "done",
@@ -189,7 +196,11 @@ describe("queued records", () => {
 			join(store, "prompts", "2026-10", "bad.json"),
 			JSON.stringify({ version: FORMAT_VERSION, harness: "cursor" }),
 		);
-		expect((await queuedRecords(store)).map((r) => r.id)).toEqual(["a", "b"]);
+		expect((await queuedRecords(store)).map((r) => r.id)).toEqual([
+			"omp-regrade",
+			"a",
+			"b",
+		]);
 	});
 });
 

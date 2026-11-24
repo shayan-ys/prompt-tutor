@@ -6,6 +6,7 @@ export {
 	DIGEST_PROMPT,
 	DIGEST_TOOL,
 	digestPromptForLanguage,
+	digestWeeksSince,
 	dueDigests,
 	exportDigests,
 	renderDigest,
@@ -33,10 +34,16 @@ export { rebuildMonth, stubUrl, writeStubs } from "./log/index.ts";
 export { configPath, dataHome, expandHome } from "./paths.ts";
 export { preprocess } from "./preprocess.ts";
 export { pruneExpiredMonths } from "./prune.ts";
+export {
+	isRegradable,
+	type RegradeResult,
+	regradeFailed,
+} from "./regrade.ts";
 export { review } from "./review.ts";
 export { resolveScope } from "./scope.ts";
 export type { ReadStats } from "./store.ts";
 export {
+	awaitsDrainer,
 	listMonthFiles,
 	listMonths,
 	newPromptId,

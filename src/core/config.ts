@@ -332,7 +332,7 @@ export function parseConfig(
 				sourcePath,
 			);
 		for (const key of Object.keys(value)) {
-			if (key !== "profile" && key !== "store")
+			if (key !== "profile" && key !== "store" && key !== "scope_digests")
 				return configError(`unknown combined_digest key: ${key}`, sourcePath);
 		}
 		if (typeof value.profile !== "string" || value.profile.trim().length === 0)
@@ -361,7 +361,36 @@ export function parseConfig(
 				"digest_export cannot be inside combined_digest.store",
 				sourcePath,
 			);
-		combinedDigest = { profile: value.profile, store };
+		const listed: string[] = [];
+		if (value.scope_digests !== undefined && value.scope_digests !== null) {
+			if (!Array.isArray(value.scope_digests))
+				return configError(
+					"combined_digest.scope_digests must be a list of Scope names",
+					sourcePath,
+				);
+			for (const entry of value.scope_digests) {
+				const name = typeof entry === "string" ? entry.trim() : "";
+				if (!names.has(name))
+					return configError(
+						`combined_digest.scope_digests names no configured Scope: ${JSON.stringify(entry)}`,
+						sourcePath,
+					);
+				if (listed.includes(name))
+					return configError(
+						`combined_digest.scope_digests lists ${name} twice`,
+						sourcePath,
+					);
+				listed.push(name);
+			}
+		}
+		combinedDigest = {
+			profile: value.profile,
+			store,
+			// Config order, so Digest runs and the export do not depend on how the list is written.
+			scopeDigests: scopes
+				.map((scope) => scope.name)
+				.filter((name) => listed.includes(name)),
+		};
 	}
 
 	return {

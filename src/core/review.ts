@@ -106,6 +106,11 @@ export async function review(
 				},
 			};
 		}
+		// Settled, so the record no longer waits for a Drainer (ADR 0013).
+		if (record.regrade) {
+			const { regrade: _settled, ...settled } = record;
+			record = settled;
+		}
 	}
 	try {
 		if (changed) await writeRecord(captured.scope.store, record);

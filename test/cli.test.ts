@@ -126,3 +126,62 @@ test("drain refuses Scopes whose live lock is held", async () => {
 		);
 	expect(result.code).toBe(1);
 });
+
+test("regrade --failed queues grader failures of the chosen Scope for its Drainer", async () => {
+	const store = join(root, "data", "prompt-tutor", "work");
+	await mkdir(join(store, "prompts", "2026-11"), { recursive: true });
+	for (const [id, failure] of [
+		["a", "grader failed: No available model is configured for @task."],
+		["b", "invalid Review after 2 attempts"],
+	])
+		await writeFile(
+			join(store, "prompts", "2026-11", `${id}.json`),
+			JSON.stringify({
+				version: 1,
+				id,
+				scope: "work",
+				profile: "work",
+				cwd: root,
+				captured_at: "2026-11-10T12:00:00.000Z",
+				utc_offset_minutes: 0,
+				log_month: "2026-11",
+				text: "I has a apple.",
+				word_count: 4,
+				state: "failed",
+				failure,
+			}),
+		);
+
+	expect(run(["regrade"]).code).toBe(2);
+	expect(run(["regrade", "--failed", "--since", "2026-13-01"]).code).toBe(2);
+	expect(run(["regrade", "--failed", "--scope"]).code).toBe(2);
+	const unknown = run(["regrade", "--failed", "--scope", "nope"]);
+	expect(unknown.code).toBe(1);
+	expect(unknown.stderr).toContain("no Scope is named nope");
+
+	const dry = run(["regrade", "--failed", "--scope", "work", "--dry-run"]);
+	expect(dry.code).toBe(0);
+	expect(dry.stdout).toContain(
+		"work: would queue 1 Prompts for the work Drainer",
+	);
+	expect(await queuedRecords(store)).toEqual([]);
+
+	const result = run(["regrade", "--failed", "--scope", "work"]);
+	expect(result.code).toBe(0);
+	expect(result.stdout).toContain(
+		"work: queued 1 Prompts for the work Drainer",
+	);
+	expect(result.stdout).toContain(
+		"work: kept 1 failed Prompts whose grader returned an invalid Review",
+	);
+	expect(result.stdout).not.toContain("home:");
+	expect(result.stdout).toContain("prompt-tutor drain");
+	expect((await queuedRecords(store)).map((record) => record.id)).toEqual([
+		"a",
+	]);
+	const queued = JSON.parse(
+		await readFile(join(store, "prompts", "2026-11", "a.json"), "utf8"),
+	);
+	expect(queued).toMatchObject({ state: "pending", regrade: true });
+	expect(queued.failure).toBeUndefined();
+});

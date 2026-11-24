@@ -11,6 +11,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import {
+	digestWeeksSince,
 	dueDigests,
 	dueDrainerDigests,
 	runDigest,
@@ -689,6 +690,7 @@ describe("runDigest", () => {
 			combinedDigest: {
 				profile: "personal",
 				store: path.join(target.root, "all"),
+				scopeDigests: [],
 			},
 		};
 		const now = new Date(endingFriday.getTime());
@@ -744,6 +746,131 @@ describe("runDigest", () => {
 		expect(html).toContain("<summary>answer</summary>");
 	});
 
+	test("scope_digests keeps a listed Scope's own Digest beside the combined one, with only its Findings", async () => {
+		const target = await fixture();
+		const work = {
+			...scopeFor(path.join(target.root, "work"), "work", null),
+			reviewProfile: "default",
+		};
+		const personal = {
+			...scopeFor(path.join(target.root, "personal"), "personal", "personal"),
+			index: 1,
+		};
+		const promptDate = new Date(
+			endingFriday.getFullYear(),
+			endingFriday.getMonth(),
+			endingFriday.getDate() - 1,
+			13,
+		);
+		await putRecords(work.store, [
+			makeRecord(work, "work-1", promptDate, "This are wrong."),
+		]);
+		await putRecords(personal.store, [
+			makeRecord(
+				personal,
+				"personal-1",
+				promptDate,
+				"These are fine, this are not.",
+			),
+		]);
+		const config: Config = {
+			...configFor(work, target.root),
+			scopes: [work, personal],
+			combinedDigest: {
+				profile: "personal",
+				store: path.join(target.root, "all"),
+				scopeDigests: ["personal"],
+			},
+		};
+		const now = new Date(endingFriday.getTime());
+		// work is not listed, so its own Drainer still builds nothing.
+		expect(
+			await dueDrainerDigests({ profile: "default", now }, config),
+		).toEqual([]);
+		const due = await dueDrainerDigests({ profile: "personal", now }, config);
+		expect(due.map((digest) => digest.name)).toEqual(["all", "personal"]);
+		const own = due[1];
+		expect(own.store).toBe(personal.store);
+		expect(own.sources).toEqual([personal]);
+
+		const fake = fakeGrader([
+			response([
+				{
+					id: "agreement",
+					name: "Agreement",
+					rule: "A singular subject takes a singular verb.",
+					findingIds: ["personal-1:1"],
+				},
+			]),
+		]);
+		expect((await runDigest(own, config, fake.grader, now)).kind).toBe(
+			"written",
+		);
+		const sent = JSON.parse(fake.requests[0].user);
+		expect(sent.findings.map(({ id }: { id: string }) => id)).toEqual([
+			"personal-1:1",
+		]);
+		const digest = JSON.parse(
+			await readFile(
+				path.join(personal.store, "digests", "2026-10-02.json"),
+				"utf8",
+			),
+		);
+		expect(digest.scope).toBe("personal");
+		expect(JSON.stringify(digest)).not.toContain("work-1");
+		await expectNoDigestFiles(work.store);
+		expect(
+			(await dueDrainerDigests({ profile: "personal", now }, config)).map(
+				(digest) => digest.name,
+			),
+		).toEqual(["all"]);
+	});
+
+	test("builds a missed earlier week without moving digest.html off the newer week", async () => {
+		const target = await fixture();
+		const scope = scopeFor(target.store);
+		const config = configFor(scope, target.root);
+		const laterFriday = new Date(2026, 9, 9, 12, 0, 0, 0);
+		await putRecords(scope.store, [
+			makeRecord(scope, "early", new Date(2026, 9, 1, 13), "This are early."),
+			makeRecord(scope, "late", new Date(2026, 9, 8, 13), "This are late."),
+		]);
+		const patterns = (id: string) =>
+			response([
+				{
+					id: "agreement",
+					name: "Agreement",
+					rule: "A singular subject takes a singular verb.",
+					findingIds: [`${id}:1`],
+				},
+			]);
+		const later = await runDigest(
+			targetFor(scope),
+			config,
+			fakeGrader([patterns("late")]).grader,
+			laterFriday,
+		);
+		expect(later).toMatchObject({ kind: "written", week: "2026-10-09" });
+		const alias = await readFile(path.join(scope.store, "digest.html"), "utf8");
+
+		const earlier = await runDigest(
+			targetFor(scope),
+			config,
+			fakeGrader([patterns("early")]).grader,
+			endingFriday,
+		);
+		expect(earlier).toMatchObject({ kind: "written", week: "2026-10-02" });
+		expect(
+			await readFile(
+				path.join(scope.store, "digests", "2026-10-02.json"),
+				"utf8",
+			),
+		).toContain("early:1");
+		expect(await readFile(path.join(scope.store, "digest.html"), "utf8")).toBe(
+			alias,
+		);
+	});
+
 	test("rejects a Pattern of two or more Findings that has no explanation", async () => {
 		const target = await fixture();
 		const scope = scopeFor(target.store);
@@ -781,5 +908,32 @@ describe("runDigest", () => {
 		expect(result.kind).toBe("failed");
 		expect(fake.requests[1].user).toContain("needs a non-empty explanation");
 		await expectNoDigestFiles(target.store);
+	});
+});
+
+describe("digestWeeksSince", () => {
+	const tuesday = new Date(2026, 9, 20, 9, 0, 0, 0);
+	const friday = (day: number) => new Date(2026, 9, day, 12, 0, 0, 0);
+
+	test("lists each ended week from the first Friday on or after the date, oldest first", () => {
+		expect(digestWeeksSince("2026-10-02", tuesday)).toEqual([
+			friday(2),
+			friday(9),
+			friday(16),
+		]);
+		expect(digestWeeksSince("2026-10-03", tuesday)).toEqual([
+			friday(9),
+			friday(16),
+		]);
+		expect(digestWeeksSince("2026-10-17", tuesday)).toEqual([]);
+	});
+
+	test("rejects a malformed or impossible date", () => {
+		expect(() => digestWeeksSince("2026-02-30", tuesday)).toThrow(
+			"Invalid date",
+		);
+		expect(() => digestWeeksSince("10/02/2026", tuesday)).toThrow(
+			"Invalid date",
+		);
 	});
 });

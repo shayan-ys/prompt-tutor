@@ -45,5 +45,5 @@ The browsable record of Reviews, one page per month, for one Scope or for all Sc
 _Avoid_: history, report, feed
 
 **Drainer**:
-The explicitly started process that reviews queued Claude Code Prompts with a profile's grader.
+The explicitly started process that reviews queued Claude Code Prompts, and Prompts queued again for regrading, with a profile's grader.
 _Avoid_: daemon, worker, queue runner

@@ -208,6 +208,91 @@ describe("exportDigests", () => {
 			"export directory name",
 		);
 	});
+
+	test("with combined_digest exports the combined notes and each scope_digests Scope's, not the others", async () => {
+		const { root, config, scopes } = await setup();
+		const [work, personal] = scopes as [Scope, Scope];
+		const all = path.join(root, "stores", "all");
+		const combined: Config = {
+			...config,
+			combinedDigest: {
+				profile: "personal",
+				store: all,
+				scopeDigests: ["personal"],
+			},
+		};
+		await store(
+			work,
+			archive("work", "2026-11-06", "2026-10-30", 4, "work secret"),
+		);
+		await store(personal, archive("personal", "2026-11-06", "2026-10-30", 2));
+		await store(
+			{ ...personal, name: "all", store: all },
+			archive("all", "2026-11-06", "2026-10-30", 6),
+		);
+		const exportRoot = config.digestExport as string;
+
+		await exportDigests(combined);
+
+		const files = await readdir(exportRoot);
+		expect(files.filter((file) => file.endsWith(".md")).toSorted()).toEqual([
+			"Prompt Tutor Digest 2026-11-06 (all).md",
+			"Prompt Tutor Digest 2026-11-06 (personal).md",
+			"_index.md",
+		]);
+		expect(files).not.toContain("work");
+		const personalNote = await readFile(
+			path.join(exportRoot, "Prompt Tutor Digest 2026-11-06 (personal).md"),
+			"utf8",
+		);
+		expect(personalNote).not.toContain("work secret");
+		expect(personalNote).not.toContain("(work)");
+		expect(
+			await readFile(path.join(exportRoot, "personal", "digest.html"), "utf8"),
+		).toContain('<base href="digests/">');
+	});
+
+	test("the rebuilt index keeps rows of other notes still in the directory", async () => {
+		const { config, scopes } = await setup(["personal"]);
+		await store(
+			scopes[0] as Scope,
+			archive("personal", "2026-10-16", "2026-10-09", 2),
+		);
+		const exportRoot = config.digestExport as string;
+		await mkdir(exportRoot, { recursive: true });
+		const handRow =
+			"| [[Prompt Tutor Unified Lessons 2026-10-02 to 2026-10-30]] | note | seed | Written by hand. |";
+		const oldRow =
+			"| [[Prompt Tutor Digest 2026-10-16 (work)]] | note | seed | An earlier export. |";
+		await writeFile(
+			path.join(exportRoot, "_index.md"),
+			[
+				"| Note | Type | Status | Summary |",
+				"|------|------|--------|---------|",
+				handRow,
+				oldRow,
+				"| [[Prompt Tutor Digest 2026-10-09 (work)]] | note | seed | Deleted note. |",
+				"| [[Prompt Tutor Digest 2026-10-16 (personal)]] | note | seed | Stale summary. |",
+				"",
+			].join("\n"),
+		);
+		for (const name of [
+			"Prompt Tutor Unified Lessons 2026-10-02 to 2026-10-30",
+			"Prompt Tutor Digest 2026-10-16 (work)",
+		])
+			await writeFile(path.join(exportRoot, `${name}.md`), "kept\n");
+
+		await exportDigests(config);
+
+		const index = await readFile(path.join(exportRoot, "_index.md"), "utf8");
+		const rows = index.split("\n").filter((line) => line.startsWith("| [["));
+		expect(rows).toHaveLength(3);
+		expect(rows[0]).toStartWith(
+			"| [[Prompt Tutor Digest 2026-10-16 (personal)]]",
+		);
+		expect(rows[0]).not.toContain("Stale summary");
+		expect(rows.slice(1)).toEqual([oldRow, handRow]);
+	});
 });
 
 describe("digest_export config", () => {
@@ -242,7 +327,25 @@ describe("combined_digest config", () => {
 		expect(parsed.ok && parsed.config.combinedDigest).toEqual({
 			profile: "personal",
 			store: "/data/prompt-tutor/all",
+			scopeDigests: [],
 		});
+	});
+
+	test("scope_digests lists configured Scopes, kept in config order", () => {
+		const parsed = parse(
+			"combined_digest:\n  profile: personal\n  scope_digests: [personal, work]\n",
+		);
+		expect(parsed.ok && parsed.config.combinedDigest?.scopeDigests).toEqual([
+			"work",
+			"personal",
+		]);
+		for (const yaml of [
+			"combined_digest:\n  profile: personal\n  scope_digests: personal\n",
+			"combined_digest:\n  profile: personal\n  scope_digests: [home]\n",
+			"combined_digest:\n  profile: personal\n  scope_digests: [work, work]\n",
+			"combined_digest:\n  profile: personal\n  scope_digests: [1]\n",
+		])
+			expect(parse(yaml).ok).toBe(false);
 	});
 
 	test("rejects a missing profile, an unknown key, and a store overlapping a Scope", () => {

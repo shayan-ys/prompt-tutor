@@ -228,19 +228,22 @@ async function staleTargets(
 }
 
 /**
- * The Digests `allowed` admits: the combined Digest when `combined_digest` names `profile`, or
- * else each Scope's Digest that `allowed` accepts. A combined Digest replaces every per-Scope one.
+ * The Digests `allowed` admits. Without `combined_digest`, each Scope's Digest that `allowed`
+ * accepts. With it, the combined Digest when `combined_digest` names `profile`, plus the Digest of
+ * each Scope in `scope_digests` that `allowed` accepts (ADR 0012, amended).
  */
 function permittedTargets(
 	config: Config,
 	profile: string,
 	allowed: (scope: Scope) => boolean,
 ): DigestTarget[] {
-	if (config.combinedDigest !== null)
-		return config.combinedDigest.profile === profile
-			? digestTargets(config)
-			: [];
-	return digestTargets(config).filter((target) => allowed(target.sources[0]));
+	const combined = config.combinedDigest;
+	return digestTargets(config).filter((target) =>
+		// `all` is a reserved Scope name, so only the combined Digest has it.
+		combined !== null && target.name === "all"
+			? combined.profile === profile
+			: allowed(target.sources[0]),
+	);
 }
 
 /** Return the stale Digests this session is allowed to build. */
@@ -286,6 +289,28 @@ export function dueDrainerDigests(
 		),
 		at.now,
 	);
+}
+
+/**
+ * Friday 12:00 local time of every week that ends on or after local date `since` (`YYYY-MM-DD`)
+ * and has ended by `now`, oldest first. Passed as `now` to `dueDigests` and `runDigest`, each
+ * selects and builds that week, so a week no session digested can be built later.
+ */
+export function digestWeeksSince(since: string, now: Date): Date[] {
+	const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(since);
+	const first = match
+		? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+		: null;
+	if (first === null || localDate(first) !== since)
+		throw new Error(`Invalid date ${JSON.stringify(since)}; use YYYY-MM-DD.`);
+	const weeks: Date[] = [];
+	for (
+		let friday = latestEndedFriday(now);
+		friday.getTime() >= first.getTime();
+		friday = previousFriday(friday)
+	)
+		weeks.push(friday);
+	return weeks.reverse();
 }
 
 function capturedWithin(record: PromptRecord, start: Date, end: Date): boolean {
@@ -850,10 +875,12 @@ export async function runDigest(
 		const html = renderDigest(archive, renderContext(week, versions, history));
 		const htmlPath = path.join(digestDirectory, `${week}.html`);
 		await writeFileAtomic(htmlPath, html);
-		await writeFileAtomic(
-			path.join(target.store, "digest.html"),
-			baseCopy(html),
-		);
+		// A backfilled week must not replace the alias to a newer week's page.
+		if (!history.htmlWeeks.some((htmlWeek) => htmlWeek > week))
+			await writeFileAtomic(
+				path.join(target.store, "digest.html"),
+				baseCopy(html),
+			);
 		// Written last: if an earlier write fails, the week stays stale and the next session retries.
 		await writeFileAtomic(jsonPath, `${JSON.stringify(archive, null, 2)}\n`);
 		if (config.digestExport === null)
