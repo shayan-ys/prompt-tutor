@@ -25,4 +25,6 @@ Turning on `combined_digest` stopped every per-Scope Digest, and with it the per
 
 This adds no provider exposure beyond ADR 0007: the listed Scope's Findings go to the same `@advisor` they would reach without `combined_digest`. It costs one more `@advisor` call per listed Scope each week.
 
+The export follows the same separation on request: `digest_export_scopes` lists which Digests reach `digest_export` (Scope names, and `all` for the combined one). With `digest_export_scopes: [personal]`, a personal vault receives only the personal notes, never `(work)` or `(all)` ones, while the combined Digest is still built in its own store. Without the key, every built Digest is exported.
+
 Because the new key arrives weeks after the per-Scope Digests stopped, `/prompt-tutor digest --since YYYY-MM-DD` builds missed weeks on request, oldest first, under the same routing, and a backfilled week does not move `digest.html` off a newer week.

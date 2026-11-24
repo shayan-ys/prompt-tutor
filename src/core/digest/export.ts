@@ -74,17 +74,20 @@ async function keptRows(
 
 /**
  * Rebuild `config.digestExport` from every stored Digest — each Scope's, or the combined one and
- * the Scopes in `scope_digests` (ADR 0012): a Markdown note and a re-rendered HTML page per week,
- * each target's latest page, and an `_index.md` table. Files are rebuilt from the archives, never
- * appended to, and nothing is deleted; the index keeps rows of other notes still in the directory.
- * Returns the paths that changed.
+ * the Scopes in `scope_digests` (ADR 0012) — limited to `digest_export_scopes` when set: a
+ * Markdown note and a re-rendered HTML page per week, each target's latest page, and an
+ * `_index.md` table. Files are rebuilt from the archives, never appended to, and nothing is
+ * deleted; the index keeps rows of other notes still in the directory. Returns the paths that
+ * changed.
  */
 export async function exportDigests(config: Config): Promise<string[]> {
 	const root = config.digestExport;
 	if (root === null) return [];
 	const written: string[] = [];
 	const notes: { name: string; summary: string; week: string }[] = [];
+	const only = config.digestExportScopes;
 	for (const scope of digestTargets(config)) {
+		if (only !== null && !only.includes(scope.name)) continue;
 		if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(scope.name))
 			throw new Error(
 				`Scope name ${JSON.stringify(scope.name)} cannot be used as an export directory name`,

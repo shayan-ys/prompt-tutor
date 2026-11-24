@@ -23,6 +23,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - `combined_digest: { profile, store? }` builds one weekly Digest over every Scope, at `all/digest.html` by default, in place of the per-Scope Digests. Only that profile's sessions and Drainer build it, so every Scope's Findings go to its `@advisor` (ADR 0012).
 - `prompt-tutor regrade --failed [--scope NAME] [--since YYYY-MM-DD] [--dry-run]` queues Prompts whose grader call failed (no model for `@task`, provider or network error, timeout) again, and `prompt-tutor drain` reviews them with the `@task` of the Scope's `review_profile`. Prompts whose grader returned an invalid Review twice, and skipped Prompts, are left as they are (ADR 0013).
 - `combined_digest.scope_digests: [<scope>, …]` keeps those Scopes' own weekly Digests and export notes beside the combined Digest, routed by each Scope's `digest_profile` as before, for a reader that may see only one Scope's notes (ADR 0012, amended).
+- `digest_export_scopes: [<scope> | all, …]` limits `digest_export` to the listed Digests, so for example a personal vault receives no `(work)` or `(all)` notes. Without it, every Digest is exported as before.
 - `/prompt-tutor digest [--since YYYY-MM-DD]` builds missed Digests on request, one week at a time, oldest first, under the session's Digest routing. It also runs headless with `omp -p`, printing to stderr.
 
 ### Changed

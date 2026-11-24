@@ -106,8 +106,13 @@ export interface Config {
 	keepMonths: number | null;
 	/** Language used for Review explanations and Digest prose; English remains the target. */
 	explanationLanguage: string;
-	/** Absolute directory that receives every Scope's Digests as HTML and Markdown, or null. */
+	/** Absolute directory that receives the built Digests as HTML and Markdown, or null. */
 	digestExport: string | null;
+	/**
+	 * Digest names (Scope names, `all` for the combined Digest) that `digestExport` receives; null
+	 * exports every Digest the config builds.
+	 */
+	digestExportScopes: string[] | null;
 	/**
 	 * One Digest over every Scope's Prompts, built only by `profile`, stored in `store`; null keeps
 	 * one Digest per Scope. When set, the only per-Scope Digests built are those of the Scopes

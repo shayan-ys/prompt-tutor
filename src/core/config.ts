@@ -66,6 +66,7 @@ function defaultConfig(env: Env): Config {
 		keepMonths: null,
 		explanationLanguage: "English",
 		digestExport: null,
+		digestExportScopes: null,
 		combinedDigest: null,
 		path: null,
 	};
@@ -95,6 +96,7 @@ export function parseConfig(
 			key !== "keep_months" &&
 			key !== "explanation_language" &&
 			key !== "digest_export" &&
+			key !== "digest_export_scopes" &&
 			key !== "combined_digest"
 		) {
 			return configError(`unknown config key: ${key}`, sourcePath);
@@ -392,6 +394,36 @@ export function parseConfig(
 				.filter((name) => listed.includes(name)),
 		};
 	}
+	let digestExportScopes: string[] | null = null;
+	if (
+		parsed.digest_export_scopes !== undefined &&
+		parsed.digest_export_scopes !== null
+	) {
+		if (
+			!Array.isArray(parsed.digest_export_scopes) ||
+			parsed.digest_export_scopes.length === 0
+		)
+			return configError(
+				"digest_export_scopes must be a non-empty list of Scope names, or null",
+				sourcePath,
+			);
+		digestExportScopes = [];
+		for (const entry of parsed.digest_export_scopes) {
+			const name = typeof entry === "string" ? entry.trim() : "";
+			// `all` names the combined Digest, so it is valid only with combined_digest.
+			if (!names.has(name) && !(name === "all" && combinedDigest !== null))
+				return configError(
+					`digest_export_scopes names no configured Scope: ${JSON.stringify(entry)}`,
+					sourcePath,
+				);
+			if (digestExportScopes.includes(name))
+				return configError(
+					`digest_export_scopes lists ${name} twice`,
+					sourcePath,
+				);
+			digestExportScopes.push(name);
+		}
+	}
 
 	return {
 		ok: true,
@@ -401,6 +433,7 @@ export function parseConfig(
 			keepMonths,
 			explanationLanguage,
 			digestExport,
+			digestExportScopes,
 			combinedDigest,
 			path: sourcePath,
 		},

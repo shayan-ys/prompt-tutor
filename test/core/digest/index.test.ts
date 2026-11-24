@@ -102,6 +102,7 @@ function configFor(scope: Scope, root: string): Config {
 		keepMonths: null,
 		explanationLanguage: "English",
 		digestExport: null,
+		digestExportScopes: null,
 		combinedDigest: null,
 		path: null,
 	};

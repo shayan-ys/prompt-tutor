@@ -177,7 +177,7 @@ scopes:
 
 `keep_months` is optional; absent or `null` keeps all Review log months. When set, it must be an integer of at least 2 and retains the current local month plus that many months before it. `explanation_language` is optional, defaults to English, and sets the language of explanations—not the target language, which remains English. With no config file, prompt-tutor uses one `default` Scope and keeps all months. Each Scope stores its Prompt records, Review log, and Digest in its own directory. A Claude Code Prompt has the profile name `claude-code` and its session's working directory, so `cwd` conditions work as for omp and `profile: claude-code` targets Claude Code Prompts. See [ADR 0007](./docs/adr/0007-digest-runs-in-scope-profile.md) for Digest routing and [ADR 0011](./docs/adr/0011-claude-code-adapter-as-mod.md) for Claude Code review.
 
-`digest_export` is optional and names a directory, for example a folder in an Obsidian vault. After each new Digest, prompt-tutor rebuilds it from every stored Digest it builds: one Markdown note per week, `Prompt Tutor Digest <week> (<scope>).md` (`(all)` for the combined Digest), with YAML frontmatter and a link to the previous week; the HTML page at `<scope>/digests/<week>.html` and the latest one at `<scope>/digest.html`; and an `_index.md` table of the notes. Only changed files are written and nothing is deleted; the index also keeps its rows for other notes still in the directory, such as notes you wrote yourself. `prompt-tutor export-digests` runs the same rebuild on demand, for example after you set `digest_export`. The export contains the Findings, so a synced or shared directory receives them too.
+`digest_export` is optional and names a directory, for example a folder in an Obsidian vault. After each new Digest, prompt-tutor rebuilds it from every stored Digest it builds: one Markdown note per week, `Prompt Tutor Digest <week> (<scope>).md` (`(all)` for the combined Digest), with YAML frontmatter and a link to the previous week; the HTML page at `<scope>/digests/<week>.html` and the latest one at `<scope>/digest.html`; and an `_index.md` table of the notes. Only changed files are written and nothing is deleted; the index also keeps its rows for other notes still in the directory, such as notes you wrote yourself. `prompt-tutor export-digests` runs the same rebuild on demand, for example after you set `digest_export`. The export contains the Findings, so a synced or shared directory receives them too. `digest_export_scopes` is optional and limits the export to the listed Digests: Scope names, plus `all` for the combined Digest when `combined_digest` is set. Without it, every Digest is exported. For example, `digest_export_scopes: [personal]` keeps work Findings out of a personal vault: no `(work)` or `(all)` note or page is written, though those Digests are still built in their stores.
 
 `combined_digest` is optional. With it, one Digest covers every Scope and no other Digest is built unless `scope_digests` asks for it; the combined Digest is written to `$XDG_DATA_HOME/prompt-tutor/all/digest.html` unless `store` names another directory, which must not overlap a Scope store. Only sessions and Drainers of `profile` build it, so every Scope's Findings go to that profile's `@advisor` ([ADR 0012](./docs/adr/0012-combined-digest-and-teaching.md)). `scope_digests` lists Scopes that also keep their own Digest beside the combined one, for a reader that may see only one Scope's notes. Each is built and routed exactly as without `combined_digest` (by its `digest_profile`, ADR 0007), reads only that Scope's Prompts, and is exported as its own note:
 
@@ -185,6 +185,16 @@ scopes:
 combined_digest:
   profile: personal
   scope_digests: [personal]
+```
+
+Together, for a personal vault that must hold no work text:
+
+```yaml
+combined_digest:
+  profile: personal
+  scope_digests: [personal]
+digest_export: "~/Notes/Prompt Tutor Digests"
+digest_export_scopes: [personal]
 ```
 
 ## Privacy

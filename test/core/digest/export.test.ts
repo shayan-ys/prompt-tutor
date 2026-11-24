@@ -103,6 +103,7 @@ async function setup(scopeNames = ["work", "personal"]): Promise<{
 			keepMonths: null,
 			explanationLanguage: "English",
 			digestExport: path.join(root, "export"),
+			digestExportScopes: null,
 			combinedDigest: null,
 			path: null,
 		},
@@ -293,6 +294,62 @@ describe("exportDigests", () => {
 		expect(rows[0]).not.toContain("Stale summary");
 		expect(rows.slice(1)).toEqual([oldRow, handRow]);
 	});
+
+	test("digest_export_scopes exports only the listed Digests and keeps index rows of notes already there", async () => {
+		const { root, config, scopes } = await setup();
+		const [work, personal] = scopes as [Scope, Scope];
+		const all = path.join(root, "stores", "all");
+		const limited: Config = {
+			...config,
+			digestExportScopes: ["personal"],
+			combinedDigest: {
+				profile: "personal",
+				store: all,
+				scopeDigests: ["work", "personal"],
+			},
+		};
+		await store(
+			work,
+			archive("work", "2026-11-06", "2026-10-30", 4, "work secret"),
+		);
+		await store(personal, archive("personal", "2026-11-06", "2026-10-30", 2));
+		await store(
+			{ ...personal, name: "all", store: all },
+			archive("all", "2026-11-06", "2026-10-30", 6, "work secret"),
+		);
+		const exportRoot = config.digestExport as string;
+		await mkdir(exportRoot, { recursive: true });
+		const oldRow =
+			"| [[Prompt Tutor Digest 2026-10-23 (work)]] | note | seed | An earlier export. |";
+		await writeFile(path.join(exportRoot, "_index.md"), `${oldRow}\n`);
+		await writeFile(
+			path.join(exportRoot, "Prompt Tutor Digest 2026-10-23 (work).md"),
+			"kept\n",
+		);
+
+		const written = await exportDigests(limited);
+
+		expect(written.join("\n")).not.toContain("work secret");
+		expect(
+			written.filter((file) =>
+				/\((all|work)\)|[/\\](all|work)[/\\]/u.test(file),
+			),
+		).toEqual([]);
+		const files = await readdir(exportRoot);
+		expect(files.toSorted()).toEqual([
+			"Prompt Tutor Digest 2026-10-23 (work).md",
+			"Prompt Tutor Digest 2026-11-06 (personal).md",
+			"_index.md",
+			"personal",
+		]);
+		const index = await readFile(path.join(exportRoot, "_index.md"), "utf8");
+		const listed = [...index.matchAll(/\[\[([^\]]+)\]\]/gu)].map((m) => m[1]);
+		expect(listed).toEqual([
+			"Prompt Tutor Digest 2026-10-23 (work)",
+			"Prompt Tutor Digest 2026-11-06 (personal)",
+		]);
+		expect(index).not.toContain("work secret");
+	});
 });
 
 describe("digest_export config", () => {
@@ -310,6 +367,37 @@ describe("digest_export config", () => {
 			env,
 		);
 		expect(inside.ok).toBe(false);
+	});
+
+	test("digest_export_scopes names configured Scopes, or all with combined_digest", () => {
+		const env = { ...process.env, HOME: "/home/u", XDG_DATA_HOME: "/data" };
+		const parse = (yaml: string) =>
+			parseConfig(
+				`scopes:\n  - name: work\n  - name: personal\n${yaml}`,
+				"/cfg/config.yml",
+				env,
+			);
+		const absent = parse("");
+		expect(absent.ok && absent.config.digestExportScopes).toBeNull();
+		const personal = parse("digest_export_scopes: [personal]\n");
+		expect(personal.ok && personal.config.digestExportScopes).toEqual([
+			"personal",
+		]);
+		const combined = parse(
+			"combined_digest:\n  profile: personal\ndigest_export_scopes: [all, personal]\n",
+		);
+		expect(combined.ok && combined.config.digestExportScopes).toEqual([
+			"all",
+			"personal",
+		]);
+		for (const yaml of [
+			"digest_export_scopes: []\n",
+			"digest_export_scopes: personal\n",
+			"digest_export_scopes: [home]\n",
+			"digest_export_scopes: [all]\n",
+			"digest_export_scopes: [personal, personal]\n",
+		])
+			expect(parse(yaml).ok).toBe(false);
 	});
 });
 

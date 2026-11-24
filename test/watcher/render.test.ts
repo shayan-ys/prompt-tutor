@@ -8,6 +8,7 @@ const config: Config = {
 	keepMonths: null,
 	explanationLanguage: "English",
 	digestExport: null,
+	digestExportScopes: null,
 	combinedDigest: null,
 	scopes: [
 		{
