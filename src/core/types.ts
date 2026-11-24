@@ -70,6 +70,11 @@ export interface PromptRecord {
 	failure?: string;
 	/** ISO 8601 UTC, set when the state leaves `pending`. */
 	settled_at?: string;
+	/**
+	 * Set by `prompt-tutor regrade` on a `failed` record it returns to `pending`, so the Scope's
+	 * Drainer reviews it whatever its harness (ADR 0013). Removed when the Review settles.
+	 */
+	regrade?: true;
 }
 
 /** One `when` entry: all keys present must match (AND). Entries are ORed. */
@@ -101,13 +106,23 @@ export interface Config {
 	keepMonths: number | null;
 	/** Language used for Review explanations and Digest prose; English remains the target. */
 	explanationLanguage: string;
-	/** Absolute directory that receives every Scope's Digests as HTML and Markdown, or null. */
+	/** Absolute directory that receives the built Digests as HTML and Markdown, or null. */
 	digestExport: string | null;
 	/**
-	 * One Digest over every Scope's Prompts, built only by `profile`, stored in `store`; null keeps
-	 * one Digest per Scope. When set, no per-Scope Digest is built (ADR 0012).
+	 * Digest names (Scope names, `all` for the combined Digest) that `digestExport` receives; null
+	 * exports every Digest the config builds.
 	 */
-	combinedDigest: { profile: string; store: string } | null;
+	digestExportScopes: string[] | null;
+	/**
+	 * One Digest over every Scope's Prompts, built only by `profile`, stored in `store`; null keeps
+	 * one Digest per Scope. When set, the only per-Scope Digests built are those of the Scopes
+	 * named in `scopeDigests`, in config order (ADR 0012, amended).
+	 */
+	combinedDigest: {
+		profile: string;
+		store: string;
+		scopeDigests: string[];
+	} | null;
 	/** Absolute config path, or null when no config file exists (one Scope named `default`). */
 	path: string | null;
 }

@@ -16,3 +16,15 @@ The spec ruled out an all-Scopes Digest because building it sends Findings from 
 - The combined Digest starts with no history: trends and "vs last" fill in from its own archives, not the per-Scope ones.
 - Digest archives grow by the teaching text and the extra examples. Older archives lack `explanation`, `tip`, and `practice`; the renderer skips those parts.
 - Output per Digest is several times longer, so a Digest call takes longer and costs more; it already runs beside the review loop (ADR 0002).
+
+## Amendment (2026-11-24): `scope_digests` keeps chosen per-Scope Digests
+
+Turning on `combined_digest` stopped every per-Scope Digest, and with it the per-Scope export notes. A reader allowed to see only one Scope, such as a personal assistant that may read personal notes but never work ones, then had nothing to read: the combined note mixes in the other Scopes' Findings.
+
+`combined_digest.scope_digests` lists Scopes that keep their own Digest beside the combined one, for example `combined_digest: { profile: personal, scope_digests: [personal] }`. A listed Scope's Digest is the ordinary per-Scope Digest: it reads only that Scope's store, is written to it, and is built only by the sessions and Drainers that ADR 0007 allows for that Scope (its `digest_profile`, or its `review_profile` when it has none). `combined_digest.profile` gives no extra right to build it. `digest_export` writes both the combined notes, `(all)`, and each listed Scope's notes. Unlisted Scopes still get no Digest of their own while the key is set.
+
+This adds no provider exposure beyond ADR 0007: the listed Scope's Findings go to the same `@advisor` they would reach without `combined_digest`. It costs one more `@advisor` call per listed Scope each week.
+
+The export follows the same separation on request: `digest_export_scopes` lists which Digests reach `digest_export` (Scope names, and `all` for the combined one). With `digest_export_scopes: [personal]`, a personal vault receives only the personal notes, never `(work)` or `(all)` ones, while the combined Digest is still built in its own store. Without the key, every built Digest is exported.
+
+Because the new key arrives weeks after the per-Scope Digests stopped, `/prompt-tutor digest --since YYYY-MM-DD` builds missed weeks on request, oldest first, under the same routing, and a backfilled week does not move `digest.html` off a newer week.

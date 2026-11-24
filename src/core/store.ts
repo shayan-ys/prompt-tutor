@@ -106,6 +106,7 @@ function isPromptRecord(value: unknown): value is PromptRecord {
 		return false;
 	if (value.settled_at !== undefined && typeof value.settled_at !== "string")
 		return false;
+	if (value.regrade !== undefined && value.regrade !== true) return false;
 	if (value.review !== undefined) {
 		if (!isObject(value.review) || !Array.isArray(value.review.findings))
 			return false;
@@ -148,6 +149,18 @@ function isPromptRecord(value: unknown): value is PromptRecord {
 	}
 	return true;
 }
+
+/**
+ * True for a pending record that only a Drainer reviews: a Claude Code Prompt (ADR 0011), or a
+ * failed Review that `prompt-tutor regrade` queued again (ADR 0013).
+ */
+export function awaitsDrainer(record: PromptRecord): boolean {
+	return (
+		record.state === "pending" &&
+		(record.harness === "claude-code" || record.regrade === true)
+	);
+}
+
 /** One record file, or null when it is missing, unreadable, invalid, or from a newer version. */
 export async function readRecord(
 	store: string,

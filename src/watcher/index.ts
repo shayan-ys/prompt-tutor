@@ -12,6 +12,7 @@ import { basename, dirname, join } from "node:path";
 import { loadConfig } from "../core/config.ts";
 import { liveDrainLock } from "../core/drain-lock.ts";
 import {
+	awaitsDrainer,
 	listMonths,
 	type ReadStats,
 	readMonth,
@@ -66,18 +67,13 @@ function recordKey(record: PromptRecord): string {
 	return `${record.scope}\u0000${record.id}`;
 }
 
-/** Stores with a pending Claude Code Prompt and a live drain lock; one lock read per store, not per record. */
+/** Stores with a record waiting for a Drainer and a live drain lock; one lock read per store, not per record. */
 async function loadLiveDrainStores(
 	config: Config,
 	records: PromptRecord[],
 ): Promise<Set<string>> {
 	const scopeNames = new Set(
-		records
-			.filter(
-				(record) =>
-					record.state === "pending" && record.harness === "claude-code",
-			)
-			.map((record) => record.scope),
+		records.filter(awaitsDrainer).map((record) => record.scope),
 	);
 	const stores = new Set(
 		config.scopes

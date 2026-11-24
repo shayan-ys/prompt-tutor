@@ -1,5 +1,6 @@
 import { rewriteDiff } from "../core/diff.ts";
 import { stubUrl } from "../core/log/index.ts";
+import { awaitsDrainer } from "../core/store.ts";
 import type { Category, Config, PromptRecord, Scope } from "../core/types.ts";
 
 const ESC = "\x1b[";
@@ -48,11 +49,11 @@ export interface RenderFrameOptions {
 	embedded?: boolean;
 	/** Include the Watcher's view tabs and follow indicator in an embedded frame. */
 	showNavigation?: boolean;
-	/** Stores whose drain lock is held by a live process; a pending Claude Code Prompt elsewhere is queued, not being reviewed. */
+	/** Stores whose drain lock is held by a live process; a record waiting for a Drainer elsewhere is queued, not being reviewed. */
 	liveDrainStores?: ReadonlySet<string>;
 }
 
-/** True for a pending Claude Code Prompt that no live drainer is working on. */
+/** True for a record waiting for a Drainer (`awaitsDrainer`) that no live Drainer is working on. */
 type QueuedTest = (record: PromptRecord) => boolean;
 
 function queuedTest(
@@ -63,8 +64,7 @@ function queuedTest(
 		config.scopes.map((scope) => [scope.name, scope.store]),
 	);
 	return (record) => {
-		if (record.state !== "pending" || record.harness !== "claude-code")
-			return false;
+		if (!awaitsDrainer(record)) return false;
 		const store = storeByScope.get(record.scope);
 		return store === undefined || !liveDrainStores.has(store);
 	};

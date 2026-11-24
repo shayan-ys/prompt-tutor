@@ -127,6 +127,8 @@ prompt-tutor
 
 The Watcher reads local records and Review logs; it does not write them. The first interactive omp session after Friday noon may build a stale weekly Digest in the background. Headless omp runs never build one. A running Drainer builds the Digests of its profile's Scopes: those whose `digest_profile` is its profile, and those with no `digest_profile` whose `review_profile` is its profile. This is how a Scope whose Prompts come from Claude Code gets its Digest. It checks when it starts and then every hour, and reports the result on its stderr as `[<profile>] prompt-tutor drain: <scope> digest <week> written: <path>`.
 
+A week no session digested, for example because no session of the Scope's profile ran that week or because the Scope's Digest was just enabled, can be built later. In an omp session of the Digest's profile, run `/prompt-tutor digest --since YYYY-MM-DD`: it builds every missing Digest that session may build, for each week ending on or after that date, oldest first. Without `--since` it builds only the latest ended week. The command also works headless, with its messages on stderr, which avoids racing the session-start Digest of an interactive session: `omp --profile personal -p "/prompt-tutor digest --since 2026-11-06"`.
+
 ### Claude Code
 
 The Claude Code mod only captures each Prompt. It makes no model call and adds nothing to Claude's context. It captures only Prompts you type in the Claude Code composer; Remote Control, `claude -p`, the Agent SDK, `/loop`, schedules, and other plugins are not captured. If your organization turns mods off, captures stop without a message.
@@ -138,6 +140,17 @@ There is one Drainer per Scope: a second `prompt-tutor drain` skips Scopes that 
 The command reads your config once, when it starts. Changes to a Scope that an already running profile drains are picked up. If you add a Scope with a new `review_profile`, restart `prompt-tutor drain`. After you upgrade prompt-tutor, restart it too.
 
 If it prints `already draining … (pid N, <path>)` and pid N is not a prompt-tutor Drainer (the pid was reused after a crash or reboot), delete the `drain.lock` file at that path and run it again.
+
+### Regrading failed Reviews
+
+A Review fails when its grader call fails, for example when the profile's `@task` role has no available model, the provider is unreachable, or the request stalls. After you fix the cause, queue those Prompts again:
+
+```sh
+prompt-tutor regrade --failed --dry-run    # count them first
+prompt-tutor regrade --failed [--scope personal] [--since 2026-11-01]
+```
+
+This returns each Prompt whose grader call failed to the queue, from omp or Claude Code alike, and `prompt-tutor drain` reviews it with the `@task` model of its Scope's `review_profile`; a Drainer that is already running picks them up within 30 seconds. `--since` compares the local capture date. Prompts whose grader returned an invalid Review twice stay failed, and skipped Prompts are never sent. A Scope without a `review_profile` keeps its failed Prompts, because no Drainer would review them. See [ADR 0013](./docs/adr/0013-regrade-failed-reviews.md).
 
 ### Dashboards
 
@@ -164,18 +177,29 @@ scopes:
 
 `keep_months` is optional; absent or `null` keeps all Review log months. When set, it must be an integer of at least 2 and retains the current local month plus that many months before it. `explanation_language` is optional, defaults to English, and sets the language of explanations—not the target language, which remains English. With no config file, prompt-tutor uses one `default` Scope and keeps all months. Each Scope stores its Prompt records, Review log, and Digest in its own directory. A Claude Code Prompt has the profile name `claude-code` and its session's working directory, so `cwd` conditions work as for omp and `profile: claude-code` targets Claude Code Prompts. See [ADR 0007](./docs/adr/0007-digest-runs-in-scope-profile.md) for Digest routing and [ADR 0011](./docs/adr/0011-claude-code-adapter-as-mod.md) for Claude Code review.
 
-`digest_export` is optional and names a directory, for example a folder in an Obsidian vault. After each new Digest, prompt-tutor rebuilds it from every Scope's stored Digests: one Markdown note per week, `Prompt Tutor Digest <week> (<scope>).md`, with YAML frontmatter and a link to the previous week; the HTML page at `<scope>/digests/<week>.html` and the latest one at `<scope>/digest.html`; and an `_index.md` table of the notes. Only changed files are written and nothing is deleted. `prompt-tutor export-digests` runs the same rebuild on demand, for example after you set `digest_export`. The export contains the Findings, so a synced or shared directory receives them too.
+`digest_export` is optional and names a directory, for example a folder in an Obsidian vault. After each new Digest, prompt-tutor rebuilds it from every stored Digest it builds: one Markdown note per week, `Prompt Tutor Digest <week> (<scope>).md` (`(all)` for the combined Digest), with YAML frontmatter and a link to the previous week; the HTML page at `<scope>/digests/<week>.html` and the latest one at `<scope>/digest.html`; and an `_index.md` table of the notes. Only changed files are written and nothing is deleted; the index also keeps its rows for other notes still in the directory, such as notes you wrote yourself. `prompt-tutor export-digests` runs the same rebuild on demand, for example after you set `digest_export`. The export contains the Findings, so a synced or shared directory receives them too. `digest_export_scopes` is optional and limits the export to the listed Digests: Scope names, plus `all` for the combined Digest when `combined_digest` is set. Without it, every Digest is exported. For example, `digest_export_scopes: [personal]` keeps work Findings out of a personal vault: no `(work)` or `(all)` note or page is written, though those Digests are still built in their stores.
 
-`combined_digest` is optional. With it, one Digest covers every Scope and no per-Scope Digest is built; it is written to `$XDG_DATA_HOME/prompt-tutor/all/digest.html` unless `store` names another directory, which must not overlap a Scope store. Only sessions and Drainers of `profile` build it, so every Scope's Findings go to that profile's `@advisor` ([ADR 0012](./docs/adr/0012-combined-digest-and-teaching.md)):
+`combined_digest` is optional. With it, one Digest covers every Scope and no other Digest is built unless `scope_digests` asks for it; the combined Digest is written to `$XDG_DATA_HOME/prompt-tutor/all/digest.html` unless `store` names another directory, which must not overlap a Scope store. Only sessions and Drainers of `profile` build it, so every Scope's Findings go to that profile's `@advisor` ([ADR 0012](./docs/adr/0012-combined-digest-and-teaching.md)). `scope_digests` lists Scopes that also keep their own Digest beside the combined one, for a reader that may see only one Scope's notes. Each is built and routed exactly as without `combined_digest` (by its `digest_profile`, ADR 0007), reads only that Scope's Prompts, and is exported as its own note:
 
 ```yaml
 combined_digest:
   profile: personal
+  scope_digests: [personal]
+```
+
+Together, for a personal vault that must hold no work text:
+
+```yaml
+combined_digest:
+  profile: personal
+  scope_digests: [personal]
+digest_export: "~/Notes/Prompt Tutor Digests"
+digest_export_scopes: [personal]
 ```
 
 ## Privacy
 
-1. **Provider exposure:** each omp Prompt's text is sent to the session profile's `@task` model for its Review (ADR 0008). Each Claude Code Prompt's text is sent to the `@task` model of its Scope's `review_profile` (ADR 0011); Claude Code and your Claude account receive nothing extra from prompt-tutor. Each week's Findings, with the sentences they came from, are sent to the Scope's Digest profile's `@advisor` model (ADR 0007), or with `combined_digest` every Scope's Findings go to its `profile`'s `@advisor` (ADR 0012). Scope selection does not change which provider receives a Prompt; the reviewing profile's `@task` setting does.
+1. **Provider exposure:** each omp Prompt's text is sent to the session profile's `@task` model for its Review (ADR 0008). Each Claude Code Prompt's text, and each Prompt queued again by `prompt-tutor regrade`, is sent to the `@task` model of its Scope's `review_profile` (ADR 0011, ADR 0013); Claude Code and your Claude account receive nothing extra from prompt-tutor. Each week's Findings, with the sentences they came from, are sent to the Scope's Digest profile's `@advisor` model (ADR 0007), or with `combined_digest` every Scope's Findings go to its `profile`'s `@advisor` (ADR 0012), and each Scope in `scope_digests` also sends its own Findings to its Digest profile's `@advisor`. Scope selection does not change which provider receives a Prompt; the reviewing profile's `@task` setting does.
 2. **Storage:** by default, each Scope's files are under `$XDG_DATA_HOME/prompt-tutor/<scope>/` (normally `~/.local/share/prompt-tutor/<scope>/`); a configured `store` may choose another path. With two or more Scopes, the all-Scopes Review log is stored at `$XDG_DATA_HOME/prompt-tutor/all/log/` unless `all_scopes_log` overrides it. Files are written with mode `0600`. Prompt records contain only preprocessed text: `<system-reminder>` blocks that Claude Code adds are removed, a leading slash token is removed, and fenced code is replaced with `[code]`. `keep_months` optionally prunes old Review log months; `prompt-tutor --delete-data` lists the known data paths, and adding `--yes` removes them.
 3. **Scope separation:** Scopes keep work and personal Prompt records and Review logs apart, and their Digests too unless `combined_digest` is set. They do not isolate or change providers. `explanation_language` changes only the language of explanations, not what is sent.
 

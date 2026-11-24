@@ -8,6 +8,7 @@ import {
 	exportDigests,
 	liveDrainLock,
 	loadConfig,
+	regradeFailed,
 	releaseDrainLockSync,
 	type Scope,
 } from "./core/index.ts";
@@ -16,6 +17,7 @@ import { renderOnce, startWatcher } from "./watcher/index.ts";
 const USAGE = `Usage: prompt-tutor [--help | --once | --delete-data [--yes]]
        prompt-tutor capture --harness claude-code [--cwd DIR]
        prompt-tutor drain
+       prompt-tutor regrade --failed [--scope NAME] [--since YYYY-MM-DD] [--dry-run]
        prompt-tutor export-digests
 
 With no arguments, run the terminal Watcher.
@@ -26,8 +28,12 @@ With no arguments, run the terminal Watcher.
 
   capture         queue the Prompt text read from stdin for review;
                   prints one JSON line without the text
-  drain           review queued Claude Code Prompts with one headless omp
-                  per Scope review_profile, until interrupted
+  drain           review queued Prompts with one headless omp per Scope
+                  review_profile, until interrupted
+  regrade         queue Prompts whose grader call failed (no model, provider
+                  or network error, timeout) for drain to review again;
+                  --scope and --since (local capture date) narrow the set,
+                  --dry-run only counts them
   export-digests  rebuild the digest_export directory from stored Digests;
                   prints each changed path`;
 
@@ -227,6 +233,79 @@ function sizeFromEnv(name: string): number | undefined {
 	return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+function isLocalDate(value: string): boolean {
+	const time = Date.parse(`${value}T00:00:00Z`);
+	return (
+		/^\d{4}-\d{2}-\d{2}$/u.test(value) &&
+		Number.isFinite(time) &&
+		new Date(time).toISOString().startsWith(value)
+	);
+}
+
+async function runRegrade(args: string[]): Promise<void> {
+	const switches = new Set<string>();
+	const values: Record<string, string> = {};
+	for (let index = 0; index < args.length; index++) {
+		const flag = args[index];
+		if (flag === "--failed" || flag === "--dry-run") {
+			if (switches.has(flag))
+				return usageError(`${flag} may be specified only once.`);
+			switches.add(flag);
+			continue;
+		}
+		if (flag !== "--scope" && flag !== "--since")
+			return usageError(`Unknown argument: ${flag}`);
+		if (flag in values)
+			return usageError(`${flag} may be specified only once.`);
+		const value = args[++index];
+		if (value === undefined || value.startsWith("--"))
+			return usageError(`${flag} requires a value.`);
+		values[flag] = value;
+	}
+	if (!switches.has("--failed"))
+		return usageError("regrade requires --failed.");
+	const since = values["--since"];
+	if (since !== undefined && !isLocalDate(since))
+		return usageError("--since requires a date as YYYY-MM-DD.");
+	const loaded = await loadConfig();
+	if (!loaded.ok) {
+		console.error(`prompt-tutor: configuration error: ${loaded.error}`);
+		process.exitCode = 1;
+		return;
+	}
+	const scopeName = values["--scope"];
+	const scopes = loaded.config.scopes.filter(
+		(scope) => scopeName === undefined || scope.name === scopeName,
+	);
+	if (scopes.length === 0) {
+		console.error(`prompt-tutor: no Scope is named ${scopeName}.`);
+		process.exitCode = 1;
+		return;
+	}
+	const dryRun = switches.has("--dry-run");
+	const results = await regradeFailed(loaded.config, { scopes, since, dryRun });
+	for (const { scope, regradable, kept, queued } of results) {
+		if (regradable === 0)
+			console.log(`${scope.name}: no Prompts whose grader call failed`);
+		else if (scope.reviewProfile === null)
+			console.log(
+				`${scope.name}: ${regradable} Prompts whose grader call failed stay failed: the Scope has no review_profile`,
+			);
+		else
+			console.log(
+				`${scope.name}: ${queued ? "queued" : "would queue"} ${regradable} Prompts for the ${scope.reviewProfile} Drainer`,
+			);
+		if (kept > 0)
+			console.log(
+				`${scope.name}: kept ${kept} failed Prompts whose grader returned an invalid Review`,
+			);
+	}
+	if (results.some((result) => result.queued && result.regradable > 0))
+		console.log(
+			"Run `prompt-tutor drain` to review them; a running Drainer picks them up within 30 seconds.",
+		);
+}
+
 async function runExportDigests(args: string[]): Promise<void> {
 	if (args.length > 0) return usageError(`Unknown argument: ${args[0]}`);
 	const loaded = await loadConfig();
@@ -247,6 +326,7 @@ async function runExportDigests(args: string[]): Promise<void> {
 export async function main(args = process.argv.slice(2)): Promise<void> {
 	if (args[0] === "capture") return runCapture(args.slice(1));
 	if (args[0] === "drain") return runDrain(args.slice(1));
+	if (args[0] === "regrade") return runRegrade(args.slice(1));
 	if (args[0] === "export-digests") return runExportDigests(args.slice(1));
 	if (args.includes("--help")) {
 		if (args.length !== 1) {

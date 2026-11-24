@@ -45,6 +45,7 @@ function config(scopes: Scope[], allScopesLog: string): Config {
 		keepMonths: null,
 		explanationLanguage: "English",
 		digestExport: null,
+		digestExportScopes: null,
 		combinedDigest: null,
 		path: null,
 	};

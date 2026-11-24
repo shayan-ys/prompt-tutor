@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../fsx.ts";
 import type { Config } from "../types.ts";
@@ -40,18 +40,54 @@ async function digestWeeks(store: string): Promise<string[]> {
 	}
 }
 
+const INDEX_ROW = /^\| \[\[([^\]|]+)(?:\|[^\]]*)?\]\] \|/u;
+
 /**
- * Rebuild `config.digestExport` from every stored Digest — each Scope's, or the combined one
- * (ADR 0012): a Markdown note and a re-rendered HTML page per week, each target's latest page,
- * and an `_index.md` table. Files are rebuilt from the archives, never appended to, and nothing
- * is deleted. Returns the paths that changed.
+ * Rows of the current `_index.md` whose note this export did not write but which is still in the
+ * directory: a note written by hand, or a Digest of a Scope no longer exported. Rebuilding the
+ * index must not drop them.
+ */
+async function keptRows(
+	root: string,
+	exported: ReadonlySet<string>,
+): Promise<{ name: string; row: string }[]> {
+	let text: string;
+	try {
+		text = await readFile(path.join(root, "_index.md"), "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+	const kept: { name: string; row: string }[] = [];
+	for (const row of text.split("\n")) {
+		const name = INDEX_ROW.exec(row)?.[1];
+		if (name === undefined || exported.has(name)) continue;
+		try {
+			await access(path.join(root, `${name}.md`));
+			kept.push({ name, row });
+		} catch {
+			// The note is gone, so its row goes too.
+		}
+	}
+	return kept;
+}
+
+/**
+ * Rebuild `config.digestExport` from every stored Digest — each Scope's, or the combined one and
+ * the Scopes in `scope_digests` (ADR 0012) — limited to `digest_export_scopes` when set: a
+ * Markdown note and a re-rendered HTML page per week, each target's latest page, and an
+ * `_index.md` table. Files are rebuilt from the archives, never appended to, and nothing is
+ * deleted; the index keeps rows of other notes still in the directory. Returns the paths that
+ * changed.
  */
 export async function exportDigests(config: Config): Promise<string[]> {
 	const root = config.digestExport;
 	if (root === null) return [];
 	const written: string[] = [];
 	const notes: { name: string; summary: string; week: string }[] = [];
+	const only = config.digestExportScopes;
 	for (const scope of digestTargets(config)) {
+		if (only !== null && !only.includes(scope.name)) continue;
 		if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(scope.name))
 			throw new Error(
 				`Scope name ${JSON.stringify(scope.name)} cannot be used as an export directory name`,
@@ -94,15 +130,19 @@ export async function exportDigests(config: Config): Promise<string[]> {
 				written,
 			);
 	}
-	notes.sort((a, b) => a.name.localeCompare(b.name));
 	const latestWeek = notes
 		.map((note) => note.week)
 		.toSorted()
 		.at(-1);
-	const rows = notes.map(
-		(note) =>
-			`| [[${note.name}]] | note | seed | ${note.summary.replaceAll("|", "\\|")} |`,
-	);
+	const rows = [
+		...notes.map((note) => ({
+			name: note.name,
+			row: `| [[${note.name}]] | note | seed | ${note.summary.replaceAll("|", "\\|")} |`,
+		})),
+		...(await keptRows(root, new Set(notes.map((note) => note.name)))),
+	]
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map(({ row }) => row);
 	await writeIfChanged(
 		path.join(root, "_index.md"),
 		[
